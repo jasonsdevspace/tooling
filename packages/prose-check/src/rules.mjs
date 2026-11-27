@@ -220,12 +220,26 @@ const proseOf = (source) => {
         )
     );
     let fenced = false;
+    // An indented code block starts after a blank line outside a list, where four spaces or a
+    // tab are code, and runs while its lines stay indented or blank. Inside a list the same
+    // indent continues the item, so it stays prose.
+    let indented = false;
+    let inList = false;
+    let previous = '';
     return source.split('\n').flatMap((line, index) => {
+        const blankBefore = previous.trim() === '';
+        previous = line;
         if (/^\s*```/.test(line)) {
             fenced = !fenced;
             return [];
         }
         if (fenced) return [];
+        const isIndented = /^(?: {4}|\t)/.test(line);
+        if (indented && (isIndented || line.trim() === '')) return [];
+        indented = isIndented && blankBefore && !inList;
+        if (indented) return [];
+        if (/^\s*(?:[-*+]|\d+[.)])\s/.test(line)) inList = true;
+        else if (line.trim() !== '' && !/^\s/.test(line)) inList = false;
         const text = line
             .replace(/`[^`]*`/g, '')
             .replace(ENTITY, '')

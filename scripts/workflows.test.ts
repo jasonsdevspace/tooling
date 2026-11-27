@@ -587,7 +587,7 @@ describe('the release workflow', () => {
         expect(text).toMatch(/^permissions:\n {4}contents: read\n/m);
     });
 
-    it('runs one release at a time for a tag, never cancelling one under way', () => {
+    it('runs one release at a time for a tag, never canceling one under way', () => {
         expect(text).toMatch(
             /^concurrency:\n {4}group: release-\$\{\{ github\.ref \}\}\n {4}cancel-in-progress: false\n/m
         );

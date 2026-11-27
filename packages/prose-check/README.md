@@ -8,8 +8,9 @@ A check that fails a build on prose that should never reach a reader: an em dash
 joining clauses, a marker such as `TODO`, an issue number in a comment, a British spelling, or
 writing that fills space rather than saying something. It reads the comments in code, Markdown and
 the text a page shows, and leaves code alone, so a semicolon ending a statement passes. The
-`check-prose` command reads a whole repository, and the `proseProblems` function reads one piece of
-text, such as a pull request's body.
+`check-prose` command reads a whole repository, the `check-commit-message` command reads a commit
+message or a pull request's title and body, and the `proseProblems` function reads one piece of
+text.
 
 [Changelog](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/CHANGELOG.md) ·
 [Source](https://github.com/jasonsdevspace/tooling/tree/main/packages/prose-check)
@@ -62,7 +63,8 @@ since a check that reads one line at a time would get them wrong.
   to the next tag.
 - **Workflows, scripts and queries**: each line that starts with `#` in `.yml`, `.yaml` and `.sh`
   files and Dockerfiles, and with `--` in `.sql` files.
-- **Markdown**, in `.md` files: the text, leaving out fenced blocks, inline code and character
+- **Markdown**, in `.md` files: the text, leaving out fenced blocks, blocks indented four spaces
+  outside a list, inline code and character
   references such as `&amp;` and `&#169;`. A reference such as `[link]` whose label the file defines
   is read as a link.
 - **Pages**, in `.html` files: the text a visitor reads, the comments, the `alt`, `title`,
@@ -149,6 +151,47 @@ exec npm run prose
 The hook reads the files as they are on disk, not as they are staged, so a line fixed on disk but
 left unstaged passes the hook and is still committed.
 
+## Checking commit messages
+
+`check-commit-message` holds a commit message to every rule above, read as Markdown, so an issue
+number such as `Closes #12` passes, and refuses one that names a tool rather than the work, such as
+an assistant named in the text or a bot as a co-author. It takes the path to the message file, reads
+only what git will store, leaving out git's comment lines and the diff below the scissors line, and
+names each rule broken once, at the first line that breaks it, counting lines as the author wrote
+them:
+
+```text
+The commit message breaks the British spelling rule on line 3. Describe the change in plain sentences.
+```
+
+Git's comment lines start with the character the repository sets in `core.commentChar` or
+`core.commentString`, `#` when unset. With `auto`, the command works it out as git does, from git's
+own "Please enter" line when the message holds one, so a line of the author's that starts with `#`
+is still read when git chose another character.
+
+It exits 0 when the message passes, 1 when it breaks a rule, and 2, with how to run it, when it is
+given no file, a file it cannot read or an option it does not know. As a
+commit hook, in `.git/hooks/commit-msg` or a hook manager's file of the same name:
+
+```sh
+npx --no-install check-commit-message "$1"
+```
+
+A pull request's title and body are written on GitHub, where no hook runs, so a workflow writes them
+to a file, the title, a blank line and the body, and checks it with `--as-is`, which reads every
+line as written, a heading that starts like a git comment included, and names a line as the title
+or by its number in the body:
+
+```yaml
+- run: npm ci
+- env:
+      TITLE: ${{ github.event.pull_request.title }}
+      BODY: ${{ github.event.pull_request.body }}
+  run: |
+      printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/message"
+      npx --no-install check-commit-message --as-is "$RUNNER_TEMP/message"
+```
+
 ## What it exports
 
 `proseProblems(path, text, label?)` checks one piece of text and returns its problems in the form
@@ -168,7 +211,11 @@ The command is built from the rest of the exports: `repositoryProblems(root)` fo
 repository, `repositoryRoot(folder)` for the top of the repository a folder sits in,
 `skippedIn(root)` for its skip list, `isScanned(path)` and `isDockerfile(path)` for whether a file
 is read, and `problemsIn(text, { issues })` for the names of the rules one line of prose breaks,
-issue numbers among them only when `issues` is true. Each comes with its types.
+issue numbers among them only when `issues` is true. The commit message command is built from
+`messageProblems(message, { titleAndBody })`, for what is wrong with a message,
+`commentOf(raw, setting)`, for the prefix of git's comment lines, `storedMessage(raw, commentChar)`,
+for the message git will store, `textToCheck(raw, commentChar, asIs)`, for the text to check line
+for line, and `TOOLS`, the patterns for the names it refuses. Each comes with its types.
 
 ## Versions and license
 

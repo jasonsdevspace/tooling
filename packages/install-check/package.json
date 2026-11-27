@@ -1,0 +1,52 @@
+{
+    "name": "@jasonsdevspace/install-check",
+    "version": "0.1.0",
+    "description": "Fails a build on an npm install that runs its packages' install scripts, in a repository's workflows, composite actions and Dockerfiles, naming each file and line.",
+    "keywords": [
+        "npm",
+        "install-scripts",
+        "supply-chain",
+        "github-actions",
+        "ci"
+    ],
+    "license": "MIT",
+    "author": "Jason Poteet",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jasonsdevspace/tooling.git",
+        "directory": "packages/install-check"
+    },
+    "homepage": "https://github.com/jasonsdevspace/tooling/tree/main/packages/install-check#readme",
+    "bugs": {
+        "url": "https://github.com/jasonsdevspace/tooling/issues"
+    },
+    "type": "module",
+    "sideEffects": false,
+    "engines": {
+        "node": ">=24"
+    },
+    "bin": {
+        "check-installs": "./bin/check-installs.mjs"
+    },
+    "exports": {
+        ".": {
+            "types": "./types/index.d.mts",
+            "default": "./src/index.mjs"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "bin",
+        "src/*.mjs",
+        "types"
+    ],
+    "dependencies": {
+        "@jasonsdevspace/prose-check": "0.3.0"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "types": "tsc -p tsconfig.types.json"
+    }
+}

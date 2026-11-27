@@ -1,8 +1,9 @@
 name: Release
 
-# Releases a package when its tag is pushed, the prose check for a tag such as prose-check-v0.2.0,
-# each package apart from the others, from this one workflow, so the rules a release keeps are
-# written once. A new package adds its tag below and a line to the case that names it. The tag has
+# Releases a package when its tag is pushed, the prose check for a tag such as prose-check-v0.2.0
+# and the install check for one such as install-check-v0.1.0, each package apart from the others,
+# from this one workflow, so the rules a release keeps are written once. A new package adds its tag
+# below and a line to the case that names it. The tag has
 # to name a commit on main, match the version in its package's package.json, and have an entry in
 # its changelog with no Unreleased entry left, and the package's changes folder may hold nothing
 # but the README, not even a link, or nothing is released. Every check CI runs, runs first.
@@ -18,6 +19,7 @@ on:
     push:
         tags:
             - 'prose-check-v*'
+            - 'install-check-v*'
 
 permissions:
     contents: read
@@ -64,6 +66,7 @@ jobs:
               run: |
                   case "$TAG" in
                       prose-check-v*) package=prose-check ;;
+                      install-check-v*) package=install-check ;;
                       *)
                           echo "$TAG names no package this workflow releases"
                           exit 1
@@ -120,7 +123,7 @@ jobs:
         runs-on: ubuntu-26.04
         timeout-minutes: 10
         # The environment is what npm's trusted publisher is registered against, and it accepts a
-        # deployment only from a release tag, `prose-check-v*`.
+        # deployment only from a release tag, `prose-check-v*` or `install-check-v*`.
         environment: npm
         permissions:
             contents: read
@@ -130,7 +133,7 @@ jobs:
             VERSION: ${{ needs.agree.outputs.version }}
             PRERELEASE: ${{ needs.agree.outputs.prerelease }}
             # Each package's checksum from the job that proved it, and none for anything else.
-            SHA256: ${{ needs.agree.outputs.package == 'prose-check' && needs.checks.outputs.prose-check-sha256 || '' }}
+            SHA256: ${{ needs.agree.outputs.package == 'prose-check' && needs.checks.outputs.prose-check-sha256 || needs.agree.outputs.package == 'install-check' && needs.checks.outputs.install-check-sha256 || '' }}
         steps:
             # The one file the job reads, for the Node the project names. No code is checked out,
             # so none can run.
@@ -239,6 +242,7 @@ jobs:
                   name="$(jq -r .name "packages/$PACKAGE/package.json")"
                   case "$PACKAGE" in
                       prose-check) what="The prose check" ;;
+                      install-check) what="The install check" ;;
                       *) what="The package" ;;
                   esac
                   install="npm install --save-dev --save-exact $name@$VERSION"

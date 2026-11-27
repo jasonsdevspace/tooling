@@ -60,6 +60,13 @@ README says what the workflow does. Around it, a maintainer:
 - moves each repository's exact pin to the promoted version, in a pull request of its own in that
   repository, reading the changelog first, since a minor version can fail a build that passed
 
+A new package's first version is staged by hand, since npm registers a trusted publisher only for a
+package it already holds. Its release pull request merges as any other, then the tarball CI packed
+for that commit is downloaded from the run's artifact, its checksum compared with the one the
+oldest Node job printed, and staged with `npm stage publish TARBALL --access public`, then promoted
+on its npm page. Its tag is pushed after that, and the release workflow finds the version on npm,
+stages nothing and creates the GitHub release.
+
 Once for each package, not for each release, its trusted publisher is registered on npm for the
 first tag that publishes through this repository's `release.yml`, with the workflow `release.yml`
 and the `npm` environment, never left blank, since a release's CI jobs run under the same file, and
@@ -69,10 +76,10 @@ repository or an earlier workflow is revoked and made again, not edited, since a
 clock:
 
 ```sh
-npm trust list @jasonsdevspace/prose-check
-npm trust revoke @jasonsdevspace/prose-check --id ID
-npm trust github @jasonsdevspace/prose-check --file release.yml --repo jasonsdevspace/tooling --env npm --allow-stage-publish
-npm trust list @jasonsdevspace/prose-check
+npm trust list @jasonsdevspace/PACKAGE
+npm trust revoke @jasonsdevspace/PACKAGE --id ID
+npm trust github @jasonsdevspace/PACKAGE --file release.yml --repo jasonsdevspace/tooling --env npm --allow-stage-publish
+npm trust list @jasonsdevspace/PACKAGE
 ```
 
 The last list shows one entry and no other: the repository `jasonsdevspace/tooling`, the workflow

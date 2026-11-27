@@ -5,9 +5,10 @@ a fix reaches every repository by moving one exact pin, and no repository keeps 
 
 ## Packages
 
-| Package                                                                                    | What it does                                                                                                                                             |
-| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@jasonsdevspace/prose-check`](https://www.npmjs.com/package/@jasonsdevspace/prose-check) | Fails a build on prose that should never reach a reader, in comments, docs and page text. Its [README](packages/prose-check/README.md) lists every rule. |
+| Package                                                                                        | What it does                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@jasonsdevspace/prose-check`](https://www.npmjs.com/package/@jasonsdevspace/prose-check)     | Fails a build on prose that should never reach a reader, in comments, docs and page text. Its [README](packages/prose-check/README.md) lists every rule.                                                 |
+| [`@jasonsdevspace/install-check`](https://www.npmjs.com/package/@jasonsdevspace/install-check) | Fails a build on an npm install that runs its packages' install scripts, in workflows, composite actions and Dockerfiles. Its [README](packages/install-check/README.md) says what counts as an install. |
 
 Each package is versioned on its own and keeps its own changelog.
 
@@ -16,8 +17,8 @@ Each package is versioned on its own and keeps its own changelog.
 A package releases when a tag that names it is pushed to a commit on main, such as
 `prose-check-v0.2.0`. Each package's tag is routed by the release workflow and allowed by the `npm`
 environment and the release tags ruleset, and npm trusts this repository's `release.yml` to stage
-it, so adding a package means adding its tag to all three and registering it on npm. The release workflow checks that the tag, the package's version and its
-changelog agree and that no change file is left, runs every check CI runs, and stages the tarball
+it, so adding a package means adding its tag to all three and registering it on npm. The release
+workflow checks that the tag, the package's version and its changelog agree and that no change file is left, runs every check CI runs, and stages the tarball
 CI packed and proved on the oldest supported Node, held to the checksum that job reported. It
 publishes through npm's trusted publishing, so no npm token is stored anywhere and each version
 carries provenance linking it to the commit and the run that built it. A staged version goes live
@@ -33,12 +34,15 @@ message. `npm run verify` runs every check CI runs on a pull request:
 - `npm run lint`, ESLint, where every rule is an error
 - `npm run format:check`, Prettier
 - `npm run prose`, the prose check from this repository's own package, over every file it reads
+- `npm run installs`, the install check from this repository's own package, over every workflow,
+  composite action and Dockerfile
 - `npm run node-check`, which keeps every place that names a Node major on the one in `.nvmrc`
 - `npm run test:run`, the unit tests, the workflows' own tests among them
 
 CI also packs each package, checks its manifest against what the tarball holds, and installs it in
-an empty repository on the oldest Node its engines admit and on the project's Node, where it passes
-plain prose, fails an em dash and type-checks as Node and a bundler resolve it.
+an empty repository on the oldest Node its engines admit and on the project's Node, where its
+command passes a repository that keeps its rules, refuses one that breaks them, and type-checks as
+Node and a bundler resolve it.
 
 ## Decisions
 

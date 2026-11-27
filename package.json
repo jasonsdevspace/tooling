@@ -11,16 +11,17 @@
         "packages/*"
     ],
     "scripts": {
-        "type-check": "tsc --noEmit && tsc -p scripts && tsc -p packages/prose-check",
+        "type-check": "tsc --noEmit && tsc -p scripts && tsc -p packages/prose-check && tsc -p packages/install-check",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "prose": "check-prose",
+        "installs": "check-installs",
         "node-check": "node scripts/check-node.mjs",
         "test": "vitest",
         "test:run": "vitest run",
-        "verify": "npm run type-check && npm run lint && npm run format:check && npm run prose && npm run node-check && npm run test:run",
+        "verify": "npm run type-check && npm run lint && npm run format:check && npm run prose && npm run installs && npm run node-check && npm run test:run",
         "prepare": "husky || true"
     },
     "devDependencies": {

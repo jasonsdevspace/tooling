@@ -49,7 +49,7 @@ text, such as a pull request's body.
 - **An emoji** in prose, such as `🚀`. A symbol that is text, such as `✓`, `→` or `©`, passes.
 
 The whole list of words and patterns is in
-[the rules](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/src/rules.mjs).
+[the rules](https://github.com/jasonsdevspace/tooling/blob/prose-check-v0.2.0/packages/prose-check/src/rules.mjs).
 Each rule reads one line at a time, so a phrase wrapped across two lines is not found. Rhythm,
 structure and tone, such as a list of three or a run of sentences of one length, are left to people,
 since a check that reads one line at a time would get them wrong.

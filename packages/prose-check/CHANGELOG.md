@@ -34,6 +34,10 @@ repository that moves to this version may find lines written before it.
 
 ## 0.1.0
 
+Released from jasonsdevspace/design-kit, as
+[its release there](https://github.com/jasonsdevspace/design-kit/releases/tag/prose-check-v0.1.0)
+shows.
+
 The prose check as a package of its own, which every repository installs in place of its own copy.
 
 - **Rules.** Em dashes anywhere, semicolons joining clauses, process artifacts held to word

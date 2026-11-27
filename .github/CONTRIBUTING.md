@@ -60,12 +60,31 @@ README says what the workflow does. Around it, a maintainer:
 - moves each repository's exact pin to the promoted version, in a pull request of its own in that
   repository, reading the changelog first, since a minor version can fail a build that passed
 
-A new package's first version is staged by hand, since npm registers a trusted publisher only for a
-package it already holds. Its release pull request merges as any other, then the tarball CI packed
-for that commit is downloaded from the run's artifact, its checksum compared with the one the
-oldest Node job printed, and staged with `npm stage publish TARBALL --access public`, then promoted
-on its npm page. Its tag is pushed after that, and the release workflow finds the version on npm,
-stages nothing and creates the GitHub release.
+A new package's first version reaches npm through the release workflow too, with provenance, once
+npm holds the package's name so a trusted publisher can be registered for it. Before its tag, the
+`npm` environment allows the package's tag and the release tags ruleset covers it, and the
+maintainer has npm 11.15 or newer and a login session that has passed two-factor authentication.
+npm already shows a public `0.0.0-stage` placeholder for a name staged for the first time, and it
+never becomes `latest`. Then the maintainer:
+
+- merges the package's release pull request, which sets its first version, such as 0.1.0
+- packs a throwaway version, `0.1.0-bootstrap.0`, by setting it in a copy of the package and
+  running `npm pack`, and stages it by hand with `npm stage publish TARBALL --access public`, which
+  creates the name on npm and is never promoted
+- registers the trusted publisher with the `npm trust github` command below
+- in the same sitting, tags the merge commit with `PACKAGE-v0.1.0` and pushes the tag, so the
+  workflow stages 0.1.0 with provenance before the registration lapses
+- promotes 0.1.0 on the package's npm page, then rejects the staged bootstrap version there
+
+If `npm trust` refuses a name whose only versions are the placeholder or the bootstrap, the first
+version is staged by hand instead, from the tarball CI proved for the merge commit. The maintainer
+downloads it from that commit's push run with
+`gh run download RUN --name PACKAGE-package --dir DIR`, compares `shasum -a 256` of the tarball with
+the checksum in the oldest Node job's Packed summary, stages it with
+`npm stage publish TARBALL --access public`, promotes it, and tags that same commit with
+`git tag PACKAGE-v0.1.0 SHA` before pushing the tag. The release workflow then finds the version on
+npm, stages nothing and creates the GitHub release, and the trusted publisher is registered with
+the next version's tag.
 
 Once for each package, not for each release, its trusted publisher is registered on npm for the
 first tag that publishes through this repository's `release.yml`, with the workflow `release.yml`

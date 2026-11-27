@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { npmCommandsIn, runsOf } from '@jasonsdevspace/install-check';
+import { installs, npmCommandsIn, runsOf } from '@jasonsdevspace/install-check';
 import { describe, expect, it } from 'vitest';
 
 import { repositoryFiles } from './repository.mjs';
@@ -313,6 +313,10 @@ describe('the workflows', () => {
             expect(text).toMatch(/npm install -g --offline --ignore-scripts "\$tarball"/);
             expect(text).not.toMatch(/npm install -g[^\n]*\bnpm@/);
         }
+    });
+
+    it('read at least one install in their own steps, so a reader that finds nothing fails', () => {
+        expect(npmCommands.filter(installs).length).toBeGreaterThan(0);
     });
 
     it('run with npx only the tools the lockfile installs, in the repository, so nothing is fetched with its scripts', () => {

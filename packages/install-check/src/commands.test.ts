@@ -56,6 +56,21 @@ describe('reading an install', () => {
         expect(read('echo "install it with `npm install x`"')).toEqual([false]);
     });
 
+    it('reads quotes in one pass, so an apostrophe inside double quotes opens nothing', () => {
+        expect(read('echo "Don\'t panic" && npm ci && echo "it\'s done"')).toEqual([false]);
+        expect(read("echo 'a \"b' && npm ci")).toEqual([false]);
+    });
+
+    it('reads no command in a shell comment', () => {
+        expect(read('echo done # npm ci')).toEqual([]);
+        expect(read('# npm ci\necho done')).toEqual([]);
+    });
+
+    it('reads an install inside a process substitution', () => {
+        expect(read('diff <(npm ci) expected')).toEqual([false]);
+        expect(read('tee >(npm ci) < x')).toEqual([false]);
+    });
+
     it('reads no command in words a message names', () => {
         // Single quotes run nothing inside them.
         expect(read("echo 'install it with `npm install x`'")).toEqual([]);
@@ -77,6 +92,11 @@ describe('reading an install', () => {
         expect(read('npm x --no-install -- foo')).toEqual([]);
         expect(read('npm exec --no-install tsc')).toEqual([]);
         expect(read('npx --ignore-scripts some-tool')).toEqual([true]);
+        expect(read('npm --ignore-scripts exec some-tool')).toEqual([true]);
+        // After the tool, or after --, a flag is the tool's own, so scripts stay on.
+        expect(read('npx some-tool --ignore-scripts')).toEqual([false]);
+        expect(read('npm exec some-tool -- --ignore-scripts')).toEqual([false]);
+        expect(read('npm exec -- --ignore-scripts')).toEqual([false]);
         // After the tool, an option is the tool's own, so npx still installs.
         expect(read('npx foo --no-install')).toEqual([false]);
         // The value of --package or -p is not the tool, so an option after it is still npx's.
@@ -87,6 +107,12 @@ describe('reading an install', () => {
         expect(read('npm create vite')).toEqual([false]);
         expect(read('npm init vite --ignore-scripts')).toEqual([true]);
         expect(read('npm init -y')).toEqual([]);
+        // A flag's value is not an initializer.
+        expect(read('npm init -w packages/a')).toEqual([]);
+        expect(read('npm init --workspace packages/a -y')).toEqual([]);
+        expect(read('npm init --scope @me')).toEqual([]);
+        expect(read('npm init --init-author-name Jason')).toEqual([]);
+        expect(read('npm init --scope @me vite')).toEqual([false]);
     });
 });
 
@@ -122,6 +148,15 @@ describe('reading a workflow', () => {
         );
     });
 
+    it('strips a comment only outside quotes and outside a block', () => {
+        expect(readSteps('steps:\n    - run: echo "a # b" && npm ci\n')).toEqual([false]);
+        expect(readSteps('steps:\n    - run: |\n          echo "step # 1"; npm ci\n')).toEqual([
+            false,
+        ]);
+        expect(readSteps('steps:\n    - run: "npm ci" # a note\n')).toEqual([false]);
+        expect(readSteps('steps:\n    - run: | # a note\n          npm ci\n')).toEqual([false]);
+    });
+
     it('names the folder a step runs in, where it names one', () => {
         const workflow =
             'steps:\n    - working-directory: demo\n      run: npm ci\n    - run: npm ci\n    - run: npm ci\n      working-directory: "${{ runner.temp }}/x"\n';
@@ -147,6 +182,25 @@ describe('reading a Dockerfile', () => {
         expect(
             dockerRunsOf('RUN npm ci --omit=dev --ignore-scripts\n').flatMap(({ run }) => read(run))
         ).toEqual([true]);
+    });
+
+    it('skips comment lines before joining continued lines, as Docker does', () => {
+        const runs = (text: string) => dockerRunsOf(text).flatMap(({ run }) => read(run));
+        expect(runs('RUN npm ci \\\n# a note\n    --ignore-scripts\n')).toEqual([true]);
+        expect(runs('# a note \\\nRUN npm ci\n')).toEqual([false]);
+    });
+
+    it('reads a RUN behind BuildKit flags, in exec form too', () => {
+        const runs = (text: string) => dockerRunsOf(text).flatMap(({ run }) => read(run));
+        expect(runs('RUN --mount=type=cache,target=/r ["npm", "ci"]\n')).toEqual([false]);
+        expect(runs('RUN --mount=type=cache,target=/r npm ci --ignore-scripts\n')).toEqual([true]);
+    });
+
+    it("reads a heredoc's own line as well as its body, and a << that opens none", () => {
+        const runs = (text: string) => dockerRunsOf(text).flatMap(({ run }) => read(run));
+        expect(runs('RUN echo $((1<<2)) && npm ci\n')).toEqual([false]);
+        expect(runs('RUN npm ci && cat <<EOF > /x\nhello\nEOF\n')).toEqual([false]);
+        expect(runs('RUN npm ci <<NONE\n')).toEqual([false]);
     });
 
     it('reads an instruction in exec form and from a heredoc', () => {

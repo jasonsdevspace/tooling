@@ -22,31 +22,36 @@ An install, in any of npm's spellings, that leaves install scripts on:
   `npm update`, `npm dedupe` and `npm link`, with their short forms and the misspellings npm
   accepts, such as `npm i`, `npm ic` and `npm isntall`.
 - **npx, `npm exec` and `npm x`**, which fetch a package that is not installed and run it, unless
-  `--no-install` is among their own options, before the tool they run. An option after the tool is
-  the tool's own.
+  `--no-install` is among their own options, before the tool they run.
 - **`npm init` and `npm create` given an initializer**, such as `npm create vite`, which fetch the
-  initializer and run it.
+  initializer and run it. A flag's value, as in `npm init -w packages/a`, is not an initializer.
 
 Scripts are off when the last flag that names them says so: `--ignore-scripts`,
 `--ignore-scripts=true` or `--ignore-scripts true` turn them off, and `--ignore-scripts=false`,
-`--ignore-scripts false` or `--no-ignore-scripts` turn them back on, wherever the flag sits.
+`--ignore-scripts false` or `--no-ignore-scripts` turn them back on. For npx and `npm exec` the
+flag counts only among npm's or npx's own options, before the tool and before `--`, since one after
+them belongs to the tool.
 
 ## What it reads
 
 - **Workflows**, every `.yml` or `.yaml` file in `.github/workflows`, and **composite actions**,
   every `action.yml` or `action.yaml` under `.github/actions`: the `run` of each step, a block or a
-  folded block, or one quoted value unquoted, and none of a step's other keys or comments.
+  folded block, or one quoted value unquoted, and none of a step's other keys. A comment is left out
+  of the key's own line only outside quotes, and a block's lines are read whole.
 - **Dockerfiles**, any file named `Dockerfile`, `Dockerfile.` followed by a name, or ending in
-  `.Dockerfile`: each `RUN` in shell form, exec form or a heredoc, with continued lines joined.
+  `.Dockerfile`: each `RUN` behind any BuildKit flags, in shell form, exec form or with a heredoc,
+  whose own line is read as well as its body, with continued lines joined past comment lines, as
+  Docker joins them.
 
 In a script it finds a command wherever it sits: after a keyword, an assignment or another command,
-inside parentheses, a substitution, or another shell started with `sh -c` or `bash -c`. It reads
-words as bash runs them:
+inside parentheses, a substitution, a process substitution such as `<(npm ci)`, or another shell
+started with `sh -c` or `bash -c`. It reads quotes in one pass, left to right, as bash runs them:
 
 - Double quotes still run a substitution, so `echo "$(npm ci)"` and a backticked `npm ci` inside
   double quotes are installs.
 - Single quotes run nothing, so a command named inside them is only text, and so is an escaped
-  backtick or dollar sign.
+  backtick or dollar sign. An apostrophe inside double quotes opens nothing.
+- A `#` that starts a word starts a comment, which runs nothing.
 - A flag that takes a value, such as `--prefix demo` or `-w docs`, is passed over with its value to
   find the command, and a redirection and its target are no part of it.
 

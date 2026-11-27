@@ -1,31 +1,11 @@
 /**
- * An npm or npx command: whether npx runs it, its subcommand (`exec` for npx), the words before
- * the subcommand and the words after it, and the text it was read from.
- *
- * @typedef {object} NpmCommand
- * @property {boolean} npx
- * @property {string} command
- * @property {readonly string[]} flags
- * @property {readonly string[]} args
- * @property {string} text
- */
-/**
- * A script a workflow step or a Dockerfile instruction runs, the line of the file it starts on,
- * and for a step that names one, the folder it runs in.
- *
- * @typedef {object} Run
- * @property {string} run
- * @property {number} line
- * @property {string} [dir]
- */
-/**
- * Whether a command's flags, before and after its subcommand, leave install scripts off, the last
- * that names them deciding, as npm reads them.
+ * Whether a command leaves install scripts off, the last of its own flags that names them deciding,
+ * as npm reads them.
  *
  * @param {NpmCommand} command
  * @returns {boolean}
  */
-export function skipsScripts({ flags, args }: NpmCommand): boolean;
+export function skipsScripts(command: NpmCommand): boolean;
 /**
  * Whether a command installs packages, and so may run their install scripts: one of npm's install
  * subcommands, npx or `npm exec` unless `--no-install` is among their own options, or `npm init`
@@ -34,14 +14,12 @@ export function skipsScripts({ flags, args }: NpmCommand): boolean;
  * @param {NpmCommand} command
  * @returns {boolean}
  */
-export function installs({ command, flags, args }: NpmCommand): boolean;
+export function installs(command: NpmCommand): boolean;
 /**
  * Each npm or npx command in a script, wherever it sits: after a keyword, an assignment or another
- * command, inside parentheses, another shell or a substitution, with continued lines joined. Single
- * quotes run nothing, so a message there that names a command is not one, while double quotes still
- * run a substitution, backticks included, as bash does, and an escaped backtick or dollar sign is
- * only text. A quoted word reads as the word, a quoted
- * string with a space reads as nothing, and a redirection and its target are no part of a command.
+ * command, inside parentheses, another shell, a substitution or a process substitution, with
+ * continued lines joined and quotes read as bash reads them. A redirection and its target are no
+ * part of a command.
  *
  * @param {string} script
  * @returns {NpmCommand[]}
@@ -49,8 +27,7 @@ export function installs({ command, flags, args }: NpmCommand): boolean;
 export function npmCommandsIn(script: string): NpmCommand[];
 /**
  * What each step of a workflow or composite action runs, the line its `run:` key sits on, and the
- * folder it names to run in, if it names one: the
- * value, unquoted where it is one quoted scalar, a block's lines under it with its indent and
+ * folder it names to run in, if it names one: the value, unquoted where it is one quoted scalar, a block's lines under it with its indent and
  * chomping read in either order, a folded block joined into one, and nothing of the step's other
  * keys, so a step's name is not read as a command.
  *
@@ -59,9 +36,9 @@ export function npmCommandsIn(script: string): NpmCommand[];
  */
 export function runsOf(text: string): Run[];
 /**
- * What a Dockerfile runs, and the line each `RUN` starts on: the shell form with its continued
- * lines joined, the exec form read as its words, or a heredoc's lines up to its terminator, and
- * none of its comments.
+ * What a Dockerfile runs, and the line each `RUN` starts on, behind any BuildKit flags: the shell
+ * form with its continued lines joined, the exec form read as its words, or a heredoc's own line
+ * with its body up to its terminator, and none of its comment lines.
  *
  * @param {string} text
  * @returns {Run[]}
@@ -86,4 +63,11 @@ export type Run = {
     run: string;
     line: number;
     dir?: string;
+};
+/**
+ * A piece of a script as it reads: its text, and the index after it.
+ */
+export type Piece = {
+    text: string;
+    next: number;
 };

@@ -5,9 +5,7 @@
  * It exits 0 on a pass, 1 on a refusal, and 2 with how to run it when given an argument or run
  * outside a git repository.
  */
-import { repositoryRoot } from '@jasonsdevspace/prose-check';
-
-import { installProblems } from '../src/index.mjs';
+import { installProblems, repositoryRoot } from '../src/index.mjs';
 
 if (process.argv.length > 2) {
     console.error(

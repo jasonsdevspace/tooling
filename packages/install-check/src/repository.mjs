@@ -4,11 +4,38 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { isDockerfile } from '@jasonsdevspace/prose-check';
+import { basename, join } from 'node:path';
 
 import { dockerRunsOf, installs, npmCommandsIn, runsOf, skipsScripts } from './commands.mjs';
+
+/**
+ * Whether a path names a Dockerfile: `Dockerfile`, `Dockerfile.` followed by a name, or a name
+ * ending in `.Dockerfile`. The prose check holds the same rule, and a test holds the two alike.
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+export function isDockerfile(path) {
+    return /^Dockerfile(\..+)?$|\.Dockerfile$/.test(basename(path));
+}
+
+/**
+ * The top of the git repository a folder sits in.
+ *
+ * @param {string} folder
+ * @returns {string}
+ */
+export function repositoryRoot(folder) {
+    try {
+        return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+            cwd: folder,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+    } catch {
+        throw new Error(`${folder} is not inside a git repository`);
+    }
+}
 
 /**
  * Whether a path is a workflow or a composite action, whose steps run as a workflow's do.

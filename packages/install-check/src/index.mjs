@@ -4,4 +4,4 @@
  * own checks of the npm commands its workflows run.
  */
 export { dockerRunsOf, installs, npmCommandsIn, runsOf, skipsScripts } from './commands.mjs';
-export { installProblems } from './repository.mjs';
+export { installProblems, isDockerfile, repositoryRoot } from './repository.mjs';

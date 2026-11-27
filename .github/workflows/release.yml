@@ -2,11 +2,14 @@ name: Release
 
 # Releases a package when its tag is pushed, the prose check for a tag such as prose-check-v0.2.0
 # and the install check for one such as install-check-v0.1.0, each package apart from the others,
-# from this one workflow, so the rules a release keeps are written once. A new package adds its tag
-# below and a line to the case that names it. The tag has
-# to name a commit on main, match the version in its package's package.json, and have an entry in
-# its changelog with no Unreleased entry left, and the package's changes folder may hold nothing
-# but the README, not even a link, or nothing is released. Every check CI runs, runs first.
+# from this one workflow, so the rules a release keeps are written once. A new package needs five
+# things here and in CI: its tag pattern under the tags below, a line in the case that names its
+# package, a branch in the publish job's checksum expression, a line in the release notes' case
+# that names it, and an oldest Node job in CI that packs it and reports its checksum as an output.
+# The tag has to name a commit on main, match the version in its package's package.json, and have
+# an entry in its changelog with no Unreleased entry left, and the package's changes folder may
+# hold nothing but the README, not even a link, or nothing is released. Every check CI runs, runs
+# first.
 #
 # The publish uses npm's trusted publishing: the workflow proves who it is with an OpenID Connect
 # token, so no npm token is stored anywhere, and each version carries provenance that links it to

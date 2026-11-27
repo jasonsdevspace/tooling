@@ -64,26 +64,8 @@ const VALUED = new Set([
  */
 
 /**
- * Whether a command's flags, before and after its subcommand, leave install scripts off, the last
- * that names them deciding, as npm reads them.
- *
- * @param {NpmCommand} command
- * @returns {boolean}
- */
-export function skipsScripts({ flags, args }) {
-    const words = [...flags, ...args];
-    let off = false;
-    words.forEach((word, index) => {
-        if (word === '--ignore-scripts') off = words[index + 1] !== 'false';
-        else if (word === '--ignore-scripts=true') off = true;
-        else if (word === '--ignore-scripts=false' || word === '--no-ignore-scripts') off = false;
-    });
-    return off;
-}
-
-/**
  * npx's own options, before the tool it runs, with the value of each option that takes one passed
- * over, so the package `-p` names is not taken for the tool.
+ * over, so the package `-p` names is not taken for the tool. They end at the tool or at `--`.
  *
  * @param {readonly string[]} words
  */
@@ -100,6 +82,54 @@ const optionsBeforeTool = (words) => {
 };
 
 /**
+ * The words npm reads a command's own settings from: every word of an install, but for npx and
+ * `npm exec` only npm's options before the subcommand and npx's own before the tool, since a flag
+ * after the tool, or after `--`, belongs to the tool.
+ *
+ * @param {NpmCommand} command
+ */
+const ownWordsOf = ({ command, flags, args }) =>
+    EXECS.has(command) ? [...flags, ...optionsBeforeTool(args)] : [...flags, ...args];
+
+/**
+ * Whether a command leaves install scripts off, the last of its own flags that names them deciding,
+ * as npm reads them.
+ *
+ * @param {NpmCommand} command
+ * @returns {boolean}
+ */
+export function skipsScripts(command) {
+    const words = ownWordsOf(command);
+    let off = false;
+    words.forEach((word, index) => {
+        if (word === '--ignore-scripts') off = words[index + 1] !== 'false';
+        else if (word === '--ignore-scripts=true') off = true;
+        else if (word === '--ignore-scripts=false' || word === '--no-ignore-scripts') off = false;
+    });
+    return off;
+}
+
+/** The flags of `npm init` that take the word after them as their value. */
+const INIT_VALUED = new Set(['-w', '--workspace', '--scope']);
+
+/**
+ * The initializer `npm init` or `npm create` is given, past its flags and the value of each flag
+ * that takes one, or undefined when it is given none.
+ *
+ * @param {readonly string[]} args
+ * @returns {string | undefined}
+ */
+const initializerOf = (args) => {
+    for (let at = 0; at < args.length; at += 1) {
+        const word = args[at] ?? '';
+        if (word === '--') return args[at + 1];
+        if (!word.startsWith('-')) return word;
+        if (INIT_VALUED.has(word) || (word.startsWith('--init-') && !word.includes('='))) at += 1;
+    }
+    return undefined;
+};
+
+/**
  * Whether a command installs packages, and so may run their install scripts: one of npm's install
  * subcommands, npx or `npm exec` unless `--no-install` is among their own options, or `npm init`
  * and `npm create` given an initializer, which they fetch and run.
@@ -107,20 +137,12 @@ const optionsBeforeTool = (words) => {
  * @param {NpmCommand} command
  * @returns {boolean}
  */
-export function installs({ command, flags, args }) {
-    if (INSTALLS.has(command)) return true;
-    if (EXECS.has(command)) return ![...flags, ...optionsBeforeTool(args)].includes('--no-install');
-    if (INITS.has(command)) return args.some((word) => !word.startsWith('-'));
+export function installs(command) {
+    if (INSTALLS.has(command.command)) return true;
+    if (EXECS.has(command.command)) return !ownWordsOf(command).includes('--no-install');
+    if (INITS.has(command.command)) return initializerOf(command.args) !== undefined;
     return false;
 }
-
-/**
- * The scripts a line hands to another shell, `sh -c '...'` and its kin, each set on a line of its
- * own so the quotes around it do not hide what it runs.
- *
- * @param {string} script
- */
-const shellsOpened = (script) => script.replace(/\b(?:ba|da|z)?sh\s+-c\s+(["'])(.*?)\1/g, '\n$2\n');
 
 /**
  * One part of a script, split at its separators, read as an npm or npx command if it holds one.
@@ -154,23 +176,180 @@ const commandOf = (part) => {
 };
 
 /**
+ * Whether what is read so far ends by starting another shell on its next word, as `sh -c` does.
+ *
+ * @param {string} text
+ */
+const opensShell = (text) => /\b(?:ba|da|z)?sh\s+-c\s*$/.test(text);
+
+/**
+ * The index of the `)` that closes the `(` at `start`, counting the parentheses inside it.
+ *
+ * @param {string} script
+ * @param {number} start
+ */
+const closeOf = (script, start) => {
+    let depth = 0;
+    for (let at = start; at < script.length; at += 1) {
+        if (script[at] === '(') depth += 1;
+        else if (script[at] === ')') {
+            depth -= 1;
+            if (depth === 0) return at;
+        }
+    }
+    return script.length;
+};
+
+/**
+ * The double-quoted string whose opening quote is at `start`: its text as one word, the scripts its
+ * substitutions run, and the index after its closing quote. An escaped quote or backslash is the
+ * character, and an escaped backtick or dollar sign is only text, so neither opens a substitution.
+ *
+ * @param {string} script
+ * @param {number} start
+ */
+const doubleQuotedAt = (script, start) => {
+    let literal = '';
+    /** @type {string[]} */
+    const runs = [];
+    let at = start + 1;
+    while (at < script.length && script[at] !== '"') {
+        const char = script[at] ?? '';
+        const next = script[at + 1] ?? '';
+        if (char === '\\') {
+            literal += next === '$' || next === '`' ? '_' : next;
+            at += 2;
+        } else if (char === '$' && next === '(') {
+            const end = closeOf(script, at + 1);
+            runs.push(script.slice(at + 2, end));
+            literal += '_';
+            at = end + 1;
+        } else if (char === '`') {
+            const end = script.indexOf('`', at + 1);
+            const stop = end < 0 ? script.length : end;
+            runs.push(script.slice(at + 1, stop));
+            literal += '_';
+            at = stop + 1;
+        } else {
+            literal += char;
+            at += 1;
+        }
+    }
+    return { literal, runs, next: at + 1 };
+};
+
+/**
+ * A piece of a script as it reads: its text, and the index after it.
+ *
+ * @typedef {object} Piece
+ * @property {string} text
+ * @property {number} next
+ */
+
+/**
+ * An escaped character outside quotes, which is text: itself where it cannot change how the line
+ * splits, and a plain character otherwise.
+ *
+ * @param {string} script
+ * @param {number} at
+ * @returns {Piece}
+ */
+const escapedAt = (script, at) => {
+    const next = script[at + 1] ?? '';
+    return { text: /[\w.\-/@=:,+]/.test(next) ? next : '_', next: at + 2 };
+};
+
+/**
+ * A single-quoted string, which runs nothing: its text as one word, or an empty pair when it holds
+ * a space and so is a message, or read as a script when it opens another shell.
+ *
+ * @param {string} script
+ * @param {number} at
+ * @param {boolean} opens
+ * @returns {Piece}
+ */
+const singleQuotedAt = (script, at, opens) => {
+    const end = script.indexOf("'", at + 1);
+    const stop = end < 0 ? script.length : end;
+    const body = script.slice(at + 1, stop);
+    if (opens) return { text: `\n${unquotedScript(body)}\n`, next: stop + 1 };
+    return { text: /\s/.test(body) ? "''" : body, next: stop + 1 };
+};
+
+/**
+ * A double-quoted string: its text as one word, or an empty pair when it holds a space, followed by
+ * each substitution it runs on a line of its own, or read as a script when it opens another shell.
+ *
+ * @param {string} script
+ * @param {number} at
+ * @param {boolean} opens
+ * @returns {Piece}
+ */
+const doubleQuotedPieceAt = (script, at, opens) => {
+    const { literal, runs, next } = doubleQuotedAt(script, at);
+    if (opens) {
+        const raw = script.slice(at + 1, next - 1).replace(/\\(["\\$`])/g, '$1');
+        return { text: `\n${unquotedScript(raw)}\n`, next };
+    }
+    const word = /\s/.test(literal) ? '""' : literal;
+    return { text: word + runs.map((run) => `\n${unquotedScript(run)}\n`).join(''), next };
+};
+
+/**
+ * The piece of a script that starts at `at`, given what is read before it: an escaped character, a
+ * quoted string, a comment from a `#` that starts a word to the line's end, or one character.
+ *
+ * @param {string} script
+ * @param {number} at
+ * @param {string} before
+ * @returns {Piece}
+ */
+const pieceAt = (script, at, before) => {
+    const char = script[at] ?? '';
+    if (char === '\\') return escapedAt(script, at);
+    if (char === "'") return singleQuotedAt(script, at, opensShell(before));
+    if (char === '"') return doubleQuotedPieceAt(script, at, opensShell(before));
+    if (char === '#' && (before === '' || /\s$/.test(before))) {
+        const end = script.indexOf('\n', at);
+        return { text: '', next: end < 0 ? script.length : end };
+    }
+    return { text: char, next: at + 1 };
+};
+
+/**
+ * A script with its quotes read in one pass, left to right, as bash reads them. Single quotes run
+ * nothing, so their text is one word, or an empty pair when it holds a space and so is a message.
+ * Double quotes are read the same way, except that each substitution inside them runs, set on a line
+ * of its own. A quoted string that opens another shell, as after `sh -c`, is read as a script. An
+ * escaped character is text, and a `#` that starts a word starts a comment.
+ *
+ * @param {string} script
+ * @returns {string}
+ */
+const unquotedScript = (script) => {
+    let out = '';
+    let at = 0;
+    while (at < script.length) {
+        const piece = pieceAt(script, at, out);
+        out += piece.text;
+        at = piece.next;
+    }
+    return out;
+};
+
+/**
  * Each npm or npx command in a script, wherever it sits: after a keyword, an assignment or another
- * command, inside parentheses, another shell or a substitution, with continued lines joined. Single
- * quotes run nothing, so a message there that names a command is not one, while double quotes still
- * run a substitution, backticks included, as bash does, and an escaped backtick or dollar sign is
- * only text. A quoted word reads as the word, a quoted
- * string with a space reads as nothing, and a redirection and its target are no part of a command.
+ * command, inside parentheses, another shell, a substitution or a process substitution, with
+ * continued lines joined and quotes read as bash reads them. A redirection and its target are no
+ * part of a command.
  *
  * @param {string} script
  * @returns {NpmCommand[]}
  */
 export function npmCommandsIn(script) {
-    return shellsOpened(script.replace(/\\\n\s*/g, ' ').replace(/\\["'`$]/g, ''))
-        .replace(/'[^'\n]*\s[^'\n]*'/g, "''")
+    return unquotedScript(script.replace(/\\\n\s*/g, ' '))
         .replace(/\$\(([^()]*)\)|`([^`]*)`/g, '\n$1$2\n')
-        .replace(/\d*(?:>>?|<)&?\s*[^\s;&|]*/g, ' ')
-        .replace(/"([^"\s]*)"|'([^'\s]*)'/g, '$1$2')
-        .replace(/"[^"\n]*"|'[^'\n]*'/g, '""')
+        .replace(/\d*(?:>>?|<)(?!\()&?\s*[^\s;&|()]*/g, ' ')
         .split(/\n|&&|\|\||;|\||&|\(|\)/)
         .flatMap(commandOf);
 }
@@ -205,16 +384,23 @@ const blockAfter = (lines, keys) => {
 };
 
 /**
- * A YAML file with every comment blanked and its line ends made plain, each comment line left
- * empty, so a line number still points at the same line.
+ * A YAML value without the comment after it: a `#` that starts a word, outside any quotes.
  *
- * @param {string} text
+ * @param {string} value
  */
-const withoutComments = (text) =>
-    `${text}\n`
-        .replace(/\r\n/g, '\n')
-        .replace(/^[ \t]*#.*$/gm, '')
-        .replace(/[ \t]+#[ \t].*$/gm, '');
+const withoutComment = (value) => {
+    let quote = '';
+    for (let at = 0; at < value.length; at += 1) {
+        const char = value[at] ?? '';
+        const wordStart = at === 0 || /\s/.test(value[at - 1] ?? '');
+        if (quote !== '') {
+            if (char === '\\' && quote === '"') at += 1;
+            else if (char === quote) quote = '';
+        } else if ((char === '"' || char === "'") && wordStart) quote = char;
+        else if (char === '#' && wordStart) return value.slice(0, at).trimEnd();
+    }
+    return value;
+};
 
 /**
  * The folder a step names to run in, read from the lines of the step that holds line `at`: from its
@@ -237,15 +423,17 @@ const dirAround = (lines, at) => {
         end += 1;
     for (const line of lines.slice(start, end)) {
         const found = /^ *(?:- )?working-directory: *(.+?) *$/.exec(line);
-        if (found) return unquoted(found[1] ?? '') ?? found[1];
+        if (found) {
+            const value = withoutComment(found[1] ?? '');
+            return unquoted(value) ?? value;
+        }
     }
     return undefined;
 };
 
 /**
  * What each step of a workflow or composite action runs, the line its `run:` key sits on, and the
- * folder it names to run in, if it names one: the
- * value, unquoted where it is one quoted scalar, a block's lines under it with its indent and
+ * folder it names to run in, if it names one: the value, unquoted where it is one quoted scalar, a block's lines under it with its indent and
  * chomping read in either order, a folded block joined into one, and nothing of the step's other
  * keys, so a step's name is not read as a command.
  *
@@ -253,13 +441,15 @@ const dirAround = (lines, at) => {
  * @returns {Run[]}
  */
 export function runsOf(text) {
-    const lines = withoutComments(text).split('\n');
+    const lines = text.replace(/\r\n/g, '\n').split('\n');
     /** @type {Run[]} */
     const runs = [];
     lines.forEach((line, at) => {
         const found = /^( *)(- )?run: *(.*)$/.exec(line);
         if (!found) return;
-        const [, indent = '', dash = '', value = ''] = found;
+        const [, indent = '', dash = '', written = ''] = found;
+        // A comment is stripped from the key's own line, outside quotes, and never from a block.
+        const value = withoutComment(written);
         const quoted = unquoted(value);
         /** @type {string} */
         let run = quoted ?? value;
@@ -274,8 +464,12 @@ export function runsOf(text) {
     return runs;
 }
 
+/** Whether a Dockerfile line is a comment, which Docker drops before joining continued lines. */
+const isComment = (/** @type {string} */ line) => /^\s*#/.test(line);
+
 /**
- * The instruction that starts at line `at`, its continued lines joined, and the line after it.
+ * The instruction that starts at line `at`, its continued lines joined past any comment line among
+ * them, and the line after it.
  *
  * @param {readonly string[]} lines
  * @param {number} at
@@ -285,30 +479,29 @@ const instructionAt = (lines, at) => {
     let joined = lines[at] ?? '';
     while (joined.endsWith('\\') && end + 1 < lines.length) {
         end += 1;
-        joined = `${joined.slice(0, -1)} ${lines[end] ?? ''}`;
+        const next = lines[end] ?? '';
+        if (!isComment(next)) joined = `${joined.slice(0, -1)} ${next}`;
     }
     return { joined, next: end + 1 };
 };
 
 /**
- * A heredoc's lines from line `at` up to its terminator, a dashed one ignoring leading tabs, and the
- * line after the terminator.
+ * The heredoc a RUN line opens, if it opens one: a `<<` at the start of a word, naming a terminator
+ * that a later line holds. Its body is the lines from line `at` to that terminator, a dashed one
+ * ignoring leading tabs, and the line after the terminator is where reading goes on.
  *
+ * @param {string} rest
  * @param {readonly string[]} lines
  * @param {number} at
- * @param {boolean} dashed
- * @param {string} end
  */
-const heredocAt = (lines, at, dashed, end) => {
-    /** @type {string[]} */
-    const body = [];
-    let next = at;
-    for (; next < lines.length; next += 1) {
-        const line = lines[next] ?? '';
-        if ((dashed ? line.replace(/^\t+/, '') : line) === end) break;
-        body.push(line);
-    }
-    return { body: body.join('\n'), next: next + 1 };
+const heredocIn = (rest, lines, at) => {
+    const found = /(?:^|\s)<<(-?)(["']?)([A-Za-z_]\w*)\2/.exec(rest);
+    if (!found) return undefined;
+    const [, dash = '', , end = ''] = found;
+    const closes = (/** @type {string} */ line) => (dash ? line.replace(/^\t+/, '') : line) === end;
+    const terminator = lines.findIndex((line, index) => index >= at && closes(line));
+    if (terminator < 0) return undefined;
+    return { body: lines.slice(at, terminator).join('\n'), next: terminator + 1 };
 };
 
 /**
@@ -328,9 +521,9 @@ const execFormOf = (rest) => {
 };
 
 /**
- * What a Dockerfile runs, and the line each `RUN` starts on: the shell form with its continued
- * lines joined, the exec form read as its words, or a heredoc's lines up to its terminator, and
- * none of its comments.
+ * What a Dockerfile runs, and the line each `RUN` starts on, behind any BuildKit flags: the shell
+ * form with its continued lines joined, the exec form read as its words, or a heredoc's own line
+ * with its body up to its terminator, and none of its comment lines.
  *
  * @param {string} text
  * @returns {Run[]}
@@ -341,16 +534,20 @@ export function dockerRunsOf(text) {
     const runs = [];
     let at = 0;
     while (at < lines.length) {
+        if (isComment(lines[at] ?? '')) {
+            at += 1;
+            continue;
+        }
         const line = at + 1;
         const { joined, next } = instructionAt(lines, at);
         at = next;
-        const rest = /^\s*RUN\s+(.*)$/i.exec(joined)?.[1];
-        if (rest === undefined) continue;
-        const heredoc = /<<(-?)["']?(\w+)["']?/.exec(rest);
+        const written = /^\s*RUN\s+(.*)$/i.exec(joined)?.[1];
+        if (written === undefined) continue;
+        const rest = written.replace(/^(?:--\S+\s+)+/, '');
+        const heredoc = heredocIn(rest, lines, at);
         if (heredoc) {
-            const found = heredocAt(lines, at, heredoc[1] === '-', heredoc[2] ?? '');
-            at = found.next;
-            runs.push({ run: found.body, line });
+            at = heredoc.next;
+            runs.push({ run: `${rest}\n${heredoc.body}`, line });
         } else {
             runs.push({ run: rest.trim().startsWith('[') ? execFormOf(rest) : rest, line });
         }

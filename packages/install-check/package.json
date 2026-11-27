@@ -40,9 +40,6 @@
         "src/*.mjs",
         "types"
     ],
-    "dependencies": {
-        "@jasonsdevspace/prose-check": "0.3.0"
-    },
     "publishConfig": {
         "access": "public"
     },

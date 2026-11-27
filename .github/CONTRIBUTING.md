@@ -76,7 +76,7 @@ npm trust list @jasonsdevspace/prose-check
 ```
 
 The last list shows one entry and no other: the repository `jasonsdevspace/tooling`, the workflow
-`release.yml` and the environment `npm`, allowed to stage alone.
+`release.yml` and the environment `npm`, allowed to stage but not to publish.
 
 The release workflow stops on a version npm already holds, staged or published, since it cannot tell
 one staged by an earlier run from one staged from other code. A run whose later step failed is

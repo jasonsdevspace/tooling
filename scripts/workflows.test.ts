@@ -327,7 +327,8 @@ describe('the workflows', () => {
                 .filter((use) => !use.startsWith('./') && !/@[0-9a-f]{40}$/.test(use))
                 .map((use) => `${path} ${use}`)
         );
-        expect(steps.some(({ text }) => /uses: /.test(text))).toBe(true);
+        for (const path of [RELEASE, '.github/workflows/ci.yml'])
+            expect(workflows.get(path) ?? '', path).toMatch(/^\s+(?:- )?uses: \S+@[0-9a-f]{40}/m);
         expect(unpinned).toEqual([]);
     });
 
@@ -338,7 +339,8 @@ describe('the workflows', () => {
                 .filter(({ text: step }) => !/^\s+persist-credentials: false$/m.test(step))
                 .map(() => path)
         );
-        expect(steps.some(({ text }) => /uses: actions\/checkout@/.test(text))).toBe(true);
+        for (const path of [RELEASE, '.github/workflows/ci.yml'])
+            expect(workflows.get(path) ?? '', path).toMatch(/uses: actions\/checkout@/);
         expect(keeping).toEqual([]);
     });
 
@@ -360,11 +362,17 @@ describe('the workflows', () => {
                 JSON.stringify({ version: declared })
             );
             writeFileSync(join(root, 'package', 'CHANGELOG.md'), changelog);
-            return spawnSync('bash', ['-c', block.replace(/^\s+/gm, '')], {
-                cwd: root,
-                env: { dir: 'package', version, PATH: process.env.PATH ?? '' },
-                encoding: 'utf8',
-            }).status;
+            // GitHub runs a step's block with these options, so the test stops where it does.
+            const { status, stdout } = spawnSync(
+                'bash',
+                ['--noprofile', '--norc', '-eo', 'pipefail', '-c', block.replace(/^\s+/gm, '')],
+                {
+                    cwd: root,
+                    env: { dir: 'package', version, PATH: process.env.PATH ?? '' },
+                    encoding: 'utf8',
+                }
+            );
+            return { status, stdout };
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
@@ -372,12 +380,17 @@ describe('the workflows', () => {
 
     it('release only a version its package declares and its changelog heads, with no Unreleased heading left', () => {
         const changelog = '# Changelog\n\n## 0.2.0\n\nA change.\n\n## 0.1.0\n\nThe first.\n';
-        expect(agreeEnds('0.2.0', changelog, '0.2.0')).toBe(0);
-        expect(agreeEnds('0.1.0', changelog, '0.2.0')).not.toBe(0);
-        expect(agreeEnds('0.3.0', changelog, '0.3.0')).not.toBe(0);
-        expect(
-            agreeEnds('0.2.0', `# Changelog\n\n## Unreleased\n\n${changelog.slice(13)}`, '0.2.0')
-        ).not.toBe(0);
+        expect(agreeEnds('0.2.0', changelog, '0.2.0').status).toBe(0);
+        const stops = (ends: { status: number | null; stdout: string }, says: string) => {
+            expect(ends.status).toBe(1);
+            expect(ends.stdout).toContain(says);
+        };
+        stops(agreeEnds('0.1.0', changelog, '0.2.0'), 'the tag says 0.2.0');
+        stops(agreeEnds('0.3.0', changelog, '0.3.0'), 'has no entry for 0.3.0');
+        stops(
+            agreeEnds('0.2.0', `# Changelog\n\n## Unreleased\n\n${changelog.slice(13)}`, '0.2.0'),
+            'still has an Unreleased heading'
+        );
     });
 
     it('name the package from its tag, and stop on a tag that names none', () => {

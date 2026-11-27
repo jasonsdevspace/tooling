@@ -412,3 +412,17 @@ describe('the prose check, given a pull request body or an issue', () => {
         );
     });
 });
+
+describe('a code block indented four spaces in Markdown', () => {
+    it('is skipped, as a fenced one is', () => {
+        expect(proseProblems('a.md', 'Run it as\n\n    npm ci; npm test\n\nThen ship.\n')).toEqual(
+            []
+        );
+    });
+
+    it('is still read inside a list item, where the indent continues the item', () => {
+        expect(proseProblems('a.md', '- An item\n\n    It continues; then ends.\n')).toHaveLength(
+            1
+        );
+    });
+});

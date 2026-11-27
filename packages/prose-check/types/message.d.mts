@@ -1,9 +1,16 @@
 /**
- * The message git will store: everything above the scissors line that `git commit -v` adds
- * before the diff, without git's own comment lines. The scissors line is found by its shape,
- * whatever comment prefix git wrote on it, since with `core.commentChar` set to `auto` git picks
- * one per commit. When there is one, its prefix marks the comment lines in place of the one
- * passed in.
+ * The prefix of git's comment lines in a message, from the repository's setting. For `auto`, it is
+ * the prefix of git's own "Please enter" line when the message holds one, and otherwise the first
+ * character git picks from that no line starts with, as git works it out. An empty setting is `#`.
+ *
+ * @param {string} raw
+ * @param {string} setting
+ * @returns {string}
+ */
+export function commentOf(raw: string, setting: string): string;
+/**
+ * The message git will store: everything above the scissors line, without git's own comment
+ * lines, with the comment prefix worked out from the repository's setting as `commentOf` does.
  *
  * @param {string} raw
  * @param {string} commentChar
@@ -11,8 +18,9 @@
  */
 export function storedMessage(raw: string, commentChar: string): string;
 /**
- * The text to check: the message as git will store it, or, for one GitHub writes as it is, such
- * as a pull request's title and body, every line of it.
+ * The text to check, line for line as the author wrote it: the message with git's comment lines
+ * blanked and the diff below the scissors left out, or, for one GitHub writes as it is, such as a
+ * pull request's title and body, every line of it.
  *
  * @param {string} raw
  * @param {string} commentChar
@@ -22,11 +30,16 @@ export function storedMessage(raw: string, commentChar: string): string;
 export function textToCheck(raw: string, commentChar: string, asIs: boolean): string;
 /**
  * What is wrong with a message, one entry per tool named and per prose rule broken, each rule
- * named once, at the first line that breaks it.
+ * named once, at the first line that breaks it. With `titleAndBody`, the message is a pull
+ * request's title, a blank line and its body, so a line is named as the title or by its number in
+ * the body.
  *
  * @param {string} message
+ * @param {{ titleAndBody?: boolean }} [options]
  * @returns {string[]}
  */
-export function messageProblems(message: string): string[];
+export function messageProblems(message: string, { titleAndBody }?: {
+    titleAndBody?: boolean;
+}): string[];
 /** The names of tools a message must not carry, and a bot or an assistant as a co-author. */
 export const TOOLS: RegExp[];

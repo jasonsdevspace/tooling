@@ -164,18 +164,22 @@ jobs:
                   "
 
             # The commit message command from the same tarball: a plain message passes, and one
-            # with a British spelling fails. The word is built from parts, so this file holds none.
-            - name: Pass and fail a commit message
+            # with a British spelling is refused with status 1, naming the rule, so a crash is not
+            # taken for a refusal. The word is built from parts, so this file holds none.
+            - name: Pass and refuse a commit message
               working-directory: ${{ runner.temp }}/consumer
               run: |
                   printf 'Keep the floor job beside the other checks\n' > message
                   ./node_modules/.bin/check-commit-message message
                   node -e "require('fs').writeFileSync('message', 'Keep the col' + 'our\\n')"
-                  if ./node_modules/.bin/check-commit-message message; then
-                      echo "the command passed a message with a British spelling in it"
+                  status=0
+                  ./node_modules/.bin/check-commit-message message 2> refused || status=$?
+                  if [ "$status" -ne 1 ] || ! grep -q 'British spelling' refused; then
+                      echo "the command did not refuse a British spelling with status 1, it gave $status:"
+                      cat refused
                       exit 1
                   fi
-                  rm message
+                  rm message refused
 
             # As Node and as a bundler resolve the types, with the package's own declarations
             # checked whole, so one that a setting cannot find fails here, not in a repository

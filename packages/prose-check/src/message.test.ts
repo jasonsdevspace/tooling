@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { messageProblems, storedMessage, textToCheck, TOOLS } from './message.mjs';
+import { commentOf, messageProblems, storedMessage, textToCheck, TOOLS } from './message.mjs';
 
 const DASH = String.fromCodePoint(0x2014);
 
@@ -40,8 +40,8 @@ describe('the commit message check', () => {
 
     it('refuses an em dash and a semicolon joining clauses', () => {
         expect(messageProblems(`Fix the floor ${DASH} and the job; then ship`)).toEqual([
-            'uses an em dash',
-            'joins clauses with a semicolon',
+            'uses an em dash on line 1',
+            'joins clauses with a semicolon on line 1',
         ]);
     });
 
@@ -60,8 +60,27 @@ describe('the commit message check', () => {
 
     it('names a rule once however many lines break it', () => {
         expect(messageProblems(`One ${DASH} two\n\nThree ${DASH} four`)).toEqual([
-            'uses an em dash',
+            'uses an em dash on line 1',
         ]);
+    });
+
+    it('counts lines as the author wrote them, git comment lines included', () => {
+        const raw = `Fix the check\n# Please enter the commit message\nKeep the ${'col'}our`;
+        expect(messageProblems(textToCheck(raw, '#', false))).toEqual([
+            'breaks the British spelling rule on line 3',
+        ]);
+    });
+
+    it("counts a pull request body's own lines, and names the title apart", () => {
+        const message = `Keep the ${'col'}our\n\nThe first line\nThen a ${DASH} here`;
+        expect(messageProblems(message, { titleAndBody: true })).toEqual([
+            'uses an em dash on line 2 of the body',
+            'breaks the British spelling rule in the title',
+        ]);
+    });
+
+    it('skips a code block indented four spaces, as a fenced one', () => {
+        expect(messageProblems('Fix the check\n\nRun it as\n\n    npm ci; npm test\n')).toEqual([]);
     });
 
     it('reads an issue number in a body as Markdown does, so closing an issue passes', () => {
@@ -82,6 +101,16 @@ describe('the commit message check', () => {
         const auto =
             'Fix\n# a heading the author wrote\n; ------------------------ >8 ------------------------\n+claude; diff';
         expect(storedMessage(auto, '#')).toBe('Fix\n# a heading the author wrote');
+    });
+
+    it('works out the comment character as git does when it is auto', () => {
+        expect(commentOf('Fix\n; Please enter the commit message for your changes.', 'auto')).toBe(
+            ';'
+        );
+        expect(commentOf('Fix\n#12 closes it\n;a line', 'auto')).toBe('@');
+        expect(commentOf('Fix', 'auto')).toBe('#');
+        expect(commentOf('Fix', ';')).toBe(';');
+        expect(commentOf('Fix', '')).toBe('#');
     });
 });
 
@@ -187,8 +216,31 @@ describe('the check-commit-message command', () => {
         expect(ranOn(message, [], { 'core.commentChar': ';' })).toEqual(passed);
     });
 
-    it('drops hash comment lines when the comment character is auto', () => {
-        expect(ranOn(commented, [], { 'core.commentChar': 'auto' })).toEqual(passed);
+    it('drops hash lines under auto when git wrote its text after a hash', () => {
+        const edited = `${commented}# Please enter the commit message for your changes.\n`;
+        expect(ranOn(edited, [], { 'core.commentChar': 'auto' })).toEqual(passed);
+    });
+
+    it('reads a hash line as the author wrote it under auto when git wrote no text of its own', () => {
+        // As a message given with -m, where git adds no comments and stores every line.
+        expectRefused(ranOn(commented, [], { 'core.commentChar': 'auto' }));
+    });
+
+    it('keeps a line of the author that starts with a hash when git picked another character', () => {
+        // An amended message whose own line starts with #, so git, with commentChar auto, writes
+        // its text after ;, and lists a changed file whose path holds a British spelling.
+        const message = [
+            'Fix the check',
+            '',
+            '#12 is the issue it closes',
+            '; Please enter the commit message for your changes. Lines starting',
+            "; with ';' will be ignored.",
+            ';',
+            '; Changes to be committed:',
+            `;\tmodified:   src/${'col'}our.ts`,
+            '',
+        ].join('\n');
+        expect(ranOn(message, [], { 'core.commentChar': 'auto' })).toEqual(passed);
     });
 
     it('drops the comment string a newer git sets in place of the character', () => {
@@ -196,9 +248,15 @@ describe('the check-commit-message command', () => {
         expect(ranOn(message, [], { 'core.commentString': '//' })).toEqual(passed);
     });
 
-    it('exits 2 and says how to run it when given no message', () => {
-        const { status, stderr } = spawnSync(process.execPath, [COMMAND], { encoding: 'utf8' });
-        expect(status).toBe(2);
-        expect(stderr).toContain('usage: check-commit-message [--as-is]');
-    });
+    it.each([[[]], [['missing-file']], [['--as-is']], [['--fast', 'MESSAGE']]])(
+        'exits 2 and says how to run it when given %j',
+        (args) => {
+            const { status, stderr } = spawnSync(process.execPath, [COMMAND, ...args], {
+                cwd: tmpdir(),
+                encoding: 'utf8',
+            });
+            expect(status).toBe(2);
+            expect(stderr).toContain('usage: check-commit-message [--as-is]');
+        }
+    );
 });

@@ -26,6 +26,7 @@
         "node": ">=24"
     },
     "bin": {
+        "check-commit-message": "./bin/check-commit-message.mjs",
         "check-prose": "./bin/check-prose.mjs"
     },
     "exports": {

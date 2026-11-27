@@ -1,1 +1,1 @@
-node scripts/check-commit-message.mjs "$1"
+node packages/prose-check/bin/check-commit-message.mjs "$1"

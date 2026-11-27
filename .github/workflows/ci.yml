@@ -163,6 +163,20 @@ jobs:
                       if (found.length !== 1) throw new Error('found ' + found.length + ' problems, not one');
                   "
 
+            # The commit message command from the same tarball: a plain message passes, and one
+            # with a British spelling fails. The word is built from parts, so this file holds none.
+            - name: Pass and fail a commit message
+              working-directory: ${{ runner.temp }}/consumer
+              run: |
+                  printf 'Keep the floor job beside the other checks\n' > message
+                  ./node_modules/.bin/check-commit-message message
+                  node -e "require('fs').writeFileSync('message', 'Keep the col' + 'our\\n')"
+                  if ./node_modules/.bin/check-commit-message message; then
+                      echo "the command passed a message with a British spelling in it"
+                      exit 1
+                  fi
+                  rm message
+
             # As Node and as a bundler resolve the types, with the package's own declarations
             # checked whole, so one that a setting cannot find fails here, not in a repository
             # that installs it.

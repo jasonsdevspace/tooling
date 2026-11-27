@@ -2,13 +2,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { messageProblems, storedMessage, textToCheck, TOOLS } from './check-commit-message.mjs';
-import { isolated } from './test-repository.js';
+import { messageProblems, storedMessage, textToCheck, TOOLS } from './message.mjs';
 
 const DASH = String.fromCodePoint(0x2014);
 
@@ -44,6 +43,29 @@ describe('the commit message check', () => {
             'uses an em dash',
             'joins clauses with a semicolon',
         ]);
+    });
+
+    it('holds a message to every other prose rule, naming the rule and the line', () => {
+        // The words are put together here, so this file passes the check it tests.
+        expect(messageProblems(`Fix the check\n\nKeep the ${'col'}our of the button`)).toEqual([
+            'breaks the British spelling rule on line 3',
+        ]);
+        expect(messageProblems(`Fix the check\n\nThe rest is ${'TO'}DO`)).toEqual([
+            'breaks the process artifact rule on line 3',
+        ]);
+        expect(messageProblems(`${'Addition'}ally, fix the check`)).toEqual([
+            'breaks the empty opener rule on line 1',
+        ]);
+    });
+
+    it('names a rule once however many lines break it', () => {
+        expect(messageProblems(`One ${DASH} two\n\nThree ${DASH} four`)).toEqual([
+            'uses an em dash',
+        ]);
+    });
+
+    it('reads an issue number in a body as Markdown does, so closing an issue passes', () => {
+        expect(messageProblems('Fix the check\n\nCloses #12')).toEqual([]);
     });
 
     it('reads only what git stores, not its comments or the diff below the scissors', () => {
@@ -98,10 +120,21 @@ describe('the tools the commit message check refuses', () => {
     });
 });
 
-const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'check-commit-message.mjs');
+/** The command, as a repository that installs the package runs it. */
+const COMMAND = fileURLToPath(new URL('../bin/check-commit-message.mjs', import.meta.url));
 
 /**
- * The script's exit status on a message, and what it wrote to stderr, run as the hook runs it
+ * The environment with every `GIT_` variable dropped and git's global and system config shut off,
+ * so a throwaway repository is not pointed at a real one by a hook's variables.
+ */
+const isolated = (): NodeJS.ProcessEnv => ({
+    ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))),
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+});
+
+/**
+ * The command's exit status on a message, and what it wrote to stderr, run as the hook runs it
  * in a repository of its own.
  */
 const ranOn = (message: string, args: string[] = [], config: Record<string, string> = {}) => {
@@ -113,7 +146,7 @@ const ranOn = (message: string, args: string[] = [], config: Record<string, stri
             execFileSync('git', ['config', key, value], options);
         }
         writeFileSync(join(root, 'MESSAGE'), message);
-        const ran = spawnSync(process.execPath, [SCRIPT, ...args, 'MESSAGE'], {
+        const ran = spawnSync(process.execPath, [COMMAND, ...args, 'MESSAGE'], {
             ...options,
             encoding: 'utf8',
         });
@@ -123,18 +156,25 @@ const ranOn = (message: string, args: string[] = [], config: Record<string, stri
     }
 };
 
-describe('the commit message check, run as a command', () => {
+describe('the check-commit-message command', () => {
     const commented = `Fix the check\n# Notes from ${'Co'}dex\n`;
     const passed = { status: 0, stderr: '' };
     // The reason, as well as the status, so a crash that also exits 1 is not taken for a refusal.
-    const expectRefused = ({ status, stderr }: { status: number | null; stderr: string }) => {
+    const expectRefused = (
+        { status, stderr }: { status: number | null; stderr: string },
+        reason = 'names a tool'
+    ) => {
         expect(status).toBe(1);
-        expect(stderr).toContain('names a tool');
+        expect(stderr).toContain(reason);
     };
 
     it('exits 0 on a plain message and 1 on one that names a tool', () => {
         expect(ranOn('Fix the check\n')).toEqual(passed);
         expectRefused(ranOn(`Fix the check with ${'Co'}dex\n`));
+    });
+
+    it('exits 1 on a message that breaks a prose rule, naming the rule', () => {
+        expectRefused(ranOn(`Keep the ${'col'}our\n`), 'British spelling');
     });
 
     it('drops git comment lines, unless told to read the message as it is', () => {
@@ -154,5 +194,11 @@ describe('the commit message check, run as a command', () => {
     it('drops the comment string a newer git sets in place of the character', () => {
         const message = `Fix the check\n// Notes from ${'Co'}dex\n`;
         expect(ranOn(message, [], { 'core.commentString': '//' })).toEqual(passed);
+    });
+
+    it('exits 2 and says how to run it when given no message', () => {
+        const { status, stderr } = spawnSync(process.execPath, [COMMAND], { encoding: 'utf8' });
+        expect(status).toBe(2);
+        expect(stderr).toContain('usage: check-commit-message [--as-is]');
     });
 });

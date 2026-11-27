@@ -14,7 +14,9 @@ Each package is versioned on its own and keeps its own changelog.
 ## How a release reaches npm
 
 A package releases when a tag that names it is pushed to a commit on main, such as
-`prose-check-v0.2.0`. The release workflow checks that the tag, the package's version and its
+`prose-check-v0.2.0`. Each package's tag is routed by the release workflow and allowed by the `npm`
+environment and the release tags ruleset, and npm trusts this repository's `release.yml` to stage
+it, so adding a package means adding its tag to all three and registering it on npm. The release workflow checks that the tag, the package's version and its
 changelog agree and that no change file is left, runs every check CI runs, and stages the tarball
 CI packed and proved on the oldest supported Node, held to the checksum that job reported. It
 publishes through npm's trusted publishing, so no npm token is stored anywhere and each version
@@ -37,6 +39,12 @@ message. `npm run verify` runs every check CI runs on a pull request:
 CI also packs each package, checks its manifest against what the tarball holds, and installs it in
 an empty repository on the oldest Node its engines admit and on the project's Node, where it passes
 plain prose, fails an em dash and type-checks as Node and a bundler resolve it.
+
+## Decisions
+
+The decisions behind this repository, with the options each turned down, are in
+[docs/decisions](docs/decisions/README.md), starting with why the house's build tools live here
+rather than beside the design kit.
 
 ## License
 

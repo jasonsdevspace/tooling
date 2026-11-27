@@ -38,6 +38,12 @@ CI also packs each package, checks its manifest against what the tarball holds, 
 an empty repository on the oldest Node its engines admit and on the project's Node, where it passes
 plain prose, fails an em dash and type-checks as Node and a bundler resolve it.
 
+## Decisions
+
+The decisions behind this repository, with the options each turned down, are in
+[docs/decisions](docs/decisions/README.md), starting with why the house's build tools live here
+rather than beside the design kit.
+
 ## License
 
 MIT, as [LICENSE](LICENSE) says.

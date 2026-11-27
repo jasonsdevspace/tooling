@@ -5,6 +5,34 @@ version can fail a build that passed before, with a new rule or a rule that matc
 patch never does, as the package's README says. Each version has a release on GitHub with its entry
 as the notes.
 
+## 0.3.0
+
+A `check-commit-message` command holds a commit message, or a pull request's title and body, to
+every prose rule and refuses one that names a tool, and Markdown leaves out a block indented four
+spaces, in a minor version, since it adds a command and a document may now pass a line it failed
+before only where that line is code.
+
+- **Rules.** In Markdown, a block indented four spaces or a tab after a blank line, outside a list,
+  is read as code and left out, as a fenced block is. Inside a list the same indent continues the
+  item and is still read.
+- **Command.** `check-commit-message` takes the path to a message file and reads only what git will
+  store, leaving out git's comment lines and the diff below the scissors line, or every line as
+  written with `--as-is`. It refuses a message that names a tool rather than the work, or a bot as
+  a co-author, and one that breaks a prose rule, read as Markdown, so a British spelling or a
+  marker such as `TODO` fails while `Closes #12` passes. It names each rule once, at the first line
+  that breaks it, counting lines as the author wrote them, or with `--as-is` as the title or by the
+  line's number in the body. With `core.commentChar` set to `auto`, it works out git's comment
+  character as git does, so a line of the author's that starts with `#` is read when git chose
+  another. It exits 0 on a pass, 1 on a refusal, and 2 with how to run it when given no file, a
+  file it cannot read or an option it does not know.
+- **Function.** `messageProblems`, `commentOf`, `storedMessage`, `textToCheck` and `TOOLS` are
+  exported with their types.
+- **Docs.** The README says what the command checks, how it reads git's comment lines and how a
+  commit hook and a workflow run it, and that Markdown leaves out an indented code block.
+- **Tests.** The cases of the command each repository kept as a script of its own pass against it,
+  with a British spelling, a process artifact and an empty opener now refused, and CI runs the
+  command from the packed tarball on the oldest Node, requiring the refusal to name the rule.
+
 ## 0.2.0
 
 The check finds writing that fills space rather than saying something, an en dash used as a dash, a

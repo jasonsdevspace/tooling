@@ -13,12 +13,12 @@
     "author": "Jason Poteet",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/jasonsdevspace/design-kit.git",
+        "url": "git+https://github.com/jasonsdevspace/tooling.git",
         "directory": "packages/prose-check"
     },
-    "homepage": "https://github.com/jasonsdevspace/design-kit/tree/main/packages/prose-check#readme",
+    "homepage": "https://github.com/jasonsdevspace/tooling/tree/main/packages/prose-check#readme",
     "bugs": {
-        "url": "https://github.com/jasonsdevspace/design-kit/issues"
+        "url": "https://github.com/jasonsdevspace/tooling/issues"
     },
     "type": "module",
     "sideEffects": false,

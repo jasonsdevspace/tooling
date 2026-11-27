@@ -1,8 +1,8 @@
 # @jasonsdevspace/prose-check
 
 [![npm version](https://img.shields.io/npm/v/@jasonsdevspace/prose-check)](https://www.npmjs.com/package/@jasonsdevspace/prose-check)
-[![CI](https://github.com/jasonsdevspace/design-kit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jasonsdevspace/design-kit/actions/workflows/ci.yml)
-[![MIT license](https://img.shields.io/npm/l/@jasonsdevspace/prose-check)](https://github.com/jasonsdevspace/design-kit/blob/main/packages/prose-check/LICENSE)
+[![CI](https://github.com/jasonsdevspace/tooling/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jasonsdevspace/tooling/actions/workflows/ci.yml)
+[![MIT license](https://img.shields.io/npm/l/@jasonsdevspace/prose-check)](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/LICENSE)
 
 A check that fails a build on prose that should never reach a reader: an em dash, a semicolon
 joining clauses, a marker such as `TODO`, an issue number in a comment, a British spelling, or
@@ -11,8 +11,8 @@ the text a page shows, and leaves code alone, so a semicolon ending a statement 
 `check-prose` command reads a whole repository, and the `proseProblems` function reads one piece of
 text, such as a pull request's body.
 
-[Changelog](https://github.com/jasonsdevspace/design-kit/blob/main/packages/prose-check/CHANGELOG.md) ·
-[Source](https://github.com/jasonsdevspace/design-kit/tree/main/packages/prose-check)
+[Changelog](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/CHANGELOG.md) ·
+[Source](https://github.com/jasonsdevspace/tooling/tree/main/packages/prose-check)
 
 ## What it checks
 
@@ -49,7 +49,7 @@ text, such as a pull request's body.
 - **An emoji** in prose, such as `🚀`. A symbol that is text, such as `✓`, `→` or `©`, passes.
 
 The whole list of words and patterns is in
-[the rules](https://github.com/jasonsdevspace/design-kit/blob/main/packages/prose-check/src/rules.mjs).
+[the rules](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/src/rules.mjs).
 Each rule reads one line at a time, so a phrase wrapped across two lines is not found. Rhythm,
 structure and tone, such as a list of three or a run of sentences of one length, are left to people,
 since a check that reads one line at a time would get them wrong.
@@ -173,8 +173,8 @@ issue numbers among them only when `issues` is true. Each comes with its types.
 ## Versions and license
 
 The rules live in this package and nowhere else, so a repository takes a fix by moving its exact pin
-to the version that holds it. The package is versioned apart from the design kit, and before 1.0.0 a
-version says what a build may do once a repository moves to it:
+to the version that holds it. The package is versioned on its own, and before 1.0.0 a version says
+what a build may do once a repository moves to it:
 
 - **A minor version** can fail a build that passed before: a new rule, or a rule that matches more
   than it did.
@@ -182,7 +182,7 @@ version says what a build may do once a repository moves to it:
   stops a rule from finding a problem that is not one.
 
 Read the
-[changelog](https://github.com/jasonsdevspace/design-kit/blob/main/packages/prose-check/CHANGELOG.md)
+[changelog](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/CHANGELOG.md)
 before moving to a minor version, since a new rule may name lines written before it. The package is
 MIT licensed, and the terms are in
-[LICENSE](https://github.com/jasonsdevspace/design-kit/blob/main/packages/prose-check/LICENSE).
+[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/prose-check/LICENSE).

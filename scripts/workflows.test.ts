@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -318,6 +320,79 @@ describe('the workflows', () => {
         expect(steps.filter(({ text }) => /actions\/cache|^\s+cache: /m.test(text))).toEqual([]);
     });
 
+    it('pin every action they use to a full commit', () => {
+        const unpinned = [...workflows].flatMap(([path, text]) =>
+            [...text.matchAll(/^\s+(?:- )?uses: (\S+)/gm)]
+                .map((match) => match[1] ?? '')
+                .filter((use) => !use.startsWith('./') && !/@[0-9a-f]{40}$/.test(use))
+                .map((use) => `${path} ${use}`)
+        );
+        for (const path of [RELEASE, '.github/workflows/ci.yml'])
+            expect(workflows.get(path) ?? '', path).toMatch(/^\s+(?:- )?uses: \S+@[0-9a-f]{40}/m);
+        expect(unpinned).toEqual([]);
+    });
+
+    it('check out without keeping the token in the repository', () => {
+        const keeping = [...workflows].flatMap(([path, text]) =>
+            stepsOf(text)
+                .filter(({ text: step }) => /uses: actions\/checkout@/.test(step))
+                .filter(({ text: step }) => !/^\s+persist-credentials: false$/m.test(step))
+                .map(() => path)
+        );
+        for (const path of [RELEASE, '.github/workflows/ci.yml'])
+            expect(workflows.get(path) ?? '', path).toMatch(/uses: actions\/checkout@/);
+        expect(keeping).toEqual([]);
+    });
+
+    /**
+     * How the release's agree step ends for a package folder holding the version and changelog
+     * given, when the tag names `version`: its version, heading and Unreleased checks, taken from
+     * the workflow and run in bash, as the release runs them.
+     */
+    const agreeEnds = (declared: string, changelog: string, version: string) => {
+        const step =
+            stepsOf(releaseJob('agree')).find(({ text }) => /declared=/.test(text))?.text ?? '';
+        const block = /declared=[\s\S]*?(?=\n\s*left=)/.exec(runOf(step))?.[0] ?? '';
+        expect(block).not.toBe('');
+        const root = mkdtempSync(join(tmpdir(), 'agree-'));
+        try {
+            mkdirSync(join(root, 'package'));
+            writeFileSync(
+                join(root, 'package', 'package.json'),
+                JSON.stringify({ version: declared })
+            );
+            writeFileSync(join(root, 'package', 'CHANGELOG.md'), changelog);
+            // GitHub runs a step's block with these options, so the test stops where it does.
+            const { status, stdout } = spawnSync(
+                'bash',
+                ['--noprofile', '--norc', '-eo', 'pipefail', '-c', block.replace(/^\s+/gm, '')],
+                {
+                    cwd: root,
+                    env: { dir: 'package', version, PATH: process.env.PATH ?? '' },
+                    encoding: 'utf8',
+                }
+            );
+            return { status, stdout };
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    };
+
+    it('release only a version its package declares and its changelog heads, with no Unreleased heading left', () => {
+        const changelog = '# Changelog\n\n## 0.2.0\n\nA change.\n\n## 0.1.0\n\nThe first.\n';
+        expect(agreeEnds('0.2.0', changelog, '0.2.0').status).toBe(0);
+        const stops = (ends: { status: number | null; stdout: string }, says: string) => {
+            expect(ends.status).toBe(1);
+            expect(ends.stdout).toContain(says);
+        };
+        stops(agreeEnds('0.1.0', changelog, '0.2.0'), 'the tag says 0.2.0');
+        stops(agreeEnds('0.3.0', changelog, '0.3.0'), 'has no entry for 0.3.0');
+        stops(
+            agreeEnds('0.2.0', `# Changelog\n\n## Unreleased\n\n${changelog.slice(13)}`, '0.2.0'),
+            'still has an Unreleased heading'
+        );
+    });
+
     it('name the package from its tag, and stop on a tag that names none', () => {
         expect(packageFor('prose-check-v0.2.0')).toBe('prose-check');
         expect(packageFor('prose-check-v0.2.0-next.1')).toBe('prose-check');
@@ -341,7 +416,10 @@ describe('the workflows', () => {
 
     it('stop a release while a change file is left beside its package', () => {
         for (const name of PACKAGES)
-            expect(existsSync(`packages/${name}/changes/README.md`), name).toBe(true);
+            expect(
+                existsSync(new URL(`../packages/${name}/changes/README.md`, import.meta.url)),
+                name
+            ).toBe(true);
         expect(releaseJob('agree')).toMatch(/^\s+dir="packages\/\$package"\s*$/m);
         expect(releaseJob('agree')).toMatch(
             /left=\$\(find "\$dir\/changes" ! -type d ! -path "\$dir\/changes\/README\.md"\)\n\s+if \[ -n "\$left" \]; then\n(?:\s+echo[^\n]*\n)+\s+exit 1\n/
@@ -542,23 +620,5 @@ describe('the release workflow', () => {
 
     it('never marks a package Latest by hand, so each release takes the default', () => {
         expect(text).not.toMatch(/--latest/);
-    });
-
-    it('pins every action it uses to a full commit', () => {
-        const uses = [...text.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((match) => match[1] ?? '');
-        expect(uses.length).toBeGreaterThan(0);
-        expect(uses.filter((use) => !use.startsWith('./') && !/@[0-9a-f]{40}$/.test(use))).toEqual(
-            []
-        );
-    });
-
-    it('checks out without keeping the token in the repository', () => {
-        const checkouts = stepsOf(text).filter(({ text: step }) =>
-            /uses: actions\/checkout@/.test(step)
-        );
-        expect(checkouts.length).toBeGreaterThan(0);
-        expect(
-            checkouts.filter(({ text: step }) => !/^\s+persist-credentials: false$/m.test(step))
-        ).toEqual([]);
     });
 });

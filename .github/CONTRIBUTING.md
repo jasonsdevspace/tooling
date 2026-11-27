@@ -72,7 +72,11 @@ clock:
 npm trust list @jasonsdevspace/prose-check
 npm trust revoke @jasonsdevspace/prose-check --id ID
 npm trust github @jasonsdevspace/prose-check --file release.yml --repo jasonsdevspace/tooling --env npm --allow-stage-publish
+npm trust list @jasonsdevspace/prose-check
 ```
+
+The last list shows one entry and no other: the repository `jasonsdevspace/tooling`, the workflow
+`release.yml` and the environment `npm`, allowed to stage but not to publish.
 
 The release workflow stops on a version npm already holds, staged or published, since it cannot tell
 one staged by an earlier run from one staged from other code. A run whose later step failed is

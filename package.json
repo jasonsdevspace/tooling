@@ -24,20 +24,20 @@
         "prepare": "husky || true"
     },
     "devDependencies": {
-        "@eslint/js": "^10.0.1",
-        "@types/node": "^24.19.2",
-        "eslint": "^10.14.0",
-        "eslint-plugin-import-x": "^4.18.1",
-        "eslint-plugin-simple-import-sort": "^14.0.0",
-        "eslint-plugin-sonarjs": "^4.2.2",
-        "globals": "^17.14.0",
-        "husky": "^9.1.7",
-        "lint-staged": "^17.6.0",
-        "prettier": "^3.10.1",
-        "publint": "^0.3.25",
-        "typescript": "~6.0.3",
-        "typescript-eslint": "^8.72.2",
-        "vitest": "^5.1.0"
+        "@eslint/js": "10.0.1",
+        "@types/node": "24.19.4",
+        "eslint": "10.16.0",
+        "eslint-plugin-import-x": "4.18.1",
+        "eslint-plugin-simple-import-sort": "14.0.0",
+        "eslint-plugin-sonarjs": "4.2.3",
+        "globals": "17.14.0",
+        "husky": "9.1.7",
+        "lint-staged": "17.6.2",
+        "prettier": "3.10.1",
+        "publint": "0.3.25",
+        "typescript": "6.0.3",
+        "typescript-eslint": "8.74.0",
+        "vitest": "5.1.2"
     },
     "lint-staged": {
         "*.{ts,js,mjs}": [

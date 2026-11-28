@@ -1,5 +1,5 @@
 {
-    "name": "@jasonsdevspace/install-check",
+    "name": "@jasonsdevspace/repo-check",
     "version": "0.1.0",
     "description": "Fails a build wherever npm could run install scripts: a package root whose .npmrc does not set ignore-scripts=true, a .npmrc that turns it back on, or a Dockerfile stage that runs npm before turning it off.",
     "keywords": [
@@ -15,9 +15,9 @@
     "repository": {
         "type": "git",
         "url": "git+https://github.com/jasonsdevspace/tooling.git",
-        "directory": "packages/install-check"
+        "directory": "packages/repo-check"
     },
-    "homepage": "https://github.com/jasonsdevspace/tooling/tree/main/packages/install-check#readme",
+    "homepage": "https://github.com/jasonsdevspace/tooling/tree/main/packages/repo-check#readme",
     "bugs": {
         "url": "https://github.com/jasonsdevspace/tooling/issues"
     },

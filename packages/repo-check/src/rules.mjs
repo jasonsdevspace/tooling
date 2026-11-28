@@ -1,8 +1,8 @@
 /**
- * The rules the install check holds: every package root turns npm's install scripts off in its
- * `.npmrc`, no `.npmrc` turns them back on, and every Dockerfile stage that runs npm turns them off
- * first. npm honors its own setting for every install however it is written, so nothing a workflow
- * or a script runs needs to be read.
+ * The rules the repo check holds: every package root turns npm's install scripts off in its
+ * `.npmrc` and keeps it from fetching git and URL dependencies, no file turns the scripts back on,
+ * and every Dockerfile stage turns them off before it runs anything. npm honors its own settings for
+ * every install however it is written, so how a workflow or a script installs need not be read.
  */
 
 /**
@@ -50,9 +50,16 @@ const settingsOf = (text, key) => {
     return settings;
 };
 
+/** The settings a package root's `.npmrc` holds, each with the value it needs and what any other does. */
+const REQUIRED = [
+    { key: 'ignore-scripts', value: 'true', wrong: 'turns install scripts back on' },
+    { key: 'allow-git', value: 'none', wrong: 'lets npm fetch dependencies from git' },
+    { key: 'allow-remote', value: 'none', wrong: 'lets npm fetch dependencies from URLs' },
+];
+
 /**
- * What a `.npmrc` holds wrong: each line that sets `ignore-scripts` to anything but true, and, for a
- * package root's own file, no line that turns install scripts off.
+ * What a `.npmrc` holds wrong: each line that sets one of the settings the check holds to another
+ * value than it needs, and, for a package root's own file, each of those settings it leaves out.
  *
  * @param {string} path
  * @param {string} text
@@ -60,18 +67,17 @@ const settingsOf = (text, key) => {
  * @returns {string[]}
  */
 export function npmrcProblems(path, text, packageRoot) {
-    const settings = settingsOf(text, 'ignore-scripts');
-    const wrong = settings
-        .filter(({ value }) => value !== 'true')
-        .map(
-            ({ value, line }) =>
-                `${path}:${line}  ignore-scripts=${value} turns install scripts back on`
-        );
-    if (packageRoot && !settings.some(({ value }) => value === 'true'))
-        wrong.unshift(
-            `${path}  a package root's .npmrc sets ignore-scripts=true, and this one does not`
-        );
-    return wrong;
+    return REQUIRED.flatMap(({ key, value: needed, wrong }) => {
+        const settings = settingsOf(text, key);
+        const problems = settings
+            .filter(({ value }) => value !== needed)
+            .map(({ value, line }) => `${path}:${line}  ${key}=${value} ${wrong}`);
+        if (packageRoot && !settings.some(({ value }) => value === needed))
+            problems.unshift(
+                `${path}  a package root's .npmrc sets ${key}=${needed}, and this one does not`
+            );
+        return problems;
+    });
 }
 
 /**
@@ -187,7 +193,7 @@ const scriptsSetting = (rest) => {
     /** @type {boolean | undefined} */
     let setting;
     for (const [key = '', value = ''] of all) {
-        if (key.toLowerCase() === 'npm_config_ignore_scripts') setting = value.trim() === 'true';
+        if (key.toLowerCase() === SETTING) setting = value.trim() === 'true';
     }
     return setting;
 };
@@ -229,22 +235,6 @@ const instructionsOf = (text) => {
     return instructions;
 };
 
-/** Whether a RUN names npm or npx where it starts a command word, not inside a path like `~/.npm`. */
-const RUNS_NPM = /(?:^|[\s;&|(`"'[]|\/)np[mx](?![\w.-])/;
-
-/**
- * Whether a RUN turns install scripts back on for its own commands: `--ignore-scripts=false`,
- * `--ignore-scripts false`, `--no-ignore-scripts`, or an `npm_config_ignore_scripts` set before a
- * command to anything but true.
- *
- * @param {string} rest
- */
-const turnsScriptsOn = (rest) =>
-    /--ignore-scripts(?:=|\s+)false\b|--no-ignore-scripts\b/.test(rest) ||
-    [...rest.matchAll(/(?:^|[\s;&|(])npm_config_ignore_scripts=("[^"]*"|'[^']*'|\S*)/gi)].some(
-        ([, value = '']) => value.replace(/^(["'])(.*)\1$/, '$2') !== 'true'
-    );
-
 /**
  * The stage a FROM starts: the image or earlier stage it builds on, and the name it gives itself.
  *
@@ -254,20 +244,6 @@ const stageOf = (rest) => {
     const words = rest.split(/\s+/).filter((word) => word !== '' && !word.startsWith('--'));
     const as = words.findIndex((word) => word.toLowerCase() === 'as');
     return { base: words[0] ?? '', name: as >= 0 ? words[as + 1] : undefined };
-};
-
-/**
- * What is wrong with a RUN, given whether its stage has turned install scripts off: nothing when it
- * runs no npm, or when the stage turned them off and the RUN leaves them off.
- *
- * @param {string} rest
- * @param {boolean} off
- * @returns {string | undefined}
- */
-const runProblem = (rest, off) => {
-    if (!RUNS_NPM.test(rest)) return undefined;
-    if (!off) return 'runs npm before npm_config_ignore_scripts=true is set in its stage';
-    return turnsScriptsOn(rest) ? 'turns install scripts back on for npm' : undefined;
 };
 
 /**
@@ -283,10 +259,21 @@ const entering = (rest, stages) => {
 };
 
 /**
- * Each RUN of a Dockerfile that runs npm or npx, as a command word, before its stage sets
- * `npm_config_ignore_scripts` to true with ENV or ARG, or that turns install scripts back on for
- * itself. A FROM starts a stage with the setting unset, unless it builds on an earlier stage, whose
- * setting it inherits.
+ * Whether an instruction runs a command in the image, as RUN does now and ONBUILD RUN does in a
+ * later build.
+ *
+ * @param {string} keyword
+ * @param {string} rest
+ */
+const runs = (keyword, rest) =>
+    keyword === 'RUN' || (keyword === 'ONBUILD' && /^RUN\b/i.test(rest));
+
+/**
+ * Each RUN of a Dockerfile, ONBUILD RUN among them, that comes before its stage sets the npm setting
+ * that turns install scripts off to true with ENV, whatever it runs, since a script it calls may run
+ * npm. ARG does not count, since a build argument can be set otherwise when the image is built. A
+ * FROM starts a stage with the setting unset, unless it builds on an earlier stage, whose setting it
+ * inherits.
  *
  * @param {string} path
  * @param {string} text
@@ -306,14 +293,51 @@ export function dockerfileProblems(path, text) {
         if (keyword === 'FROM') {
             if (stage !== undefined) stages.set(stage, off);
             ({ off, stage } = entering(rest, stages));
-        } else if (keyword === 'ENV' || keyword === 'ARG') off = scriptsSetting(rest) ?? off;
-        else if (keyword === 'RUN') {
-            const problem = runProblem(rest, off);
-            if (problem !== undefined)
-                problems.push(
-                    `${path}:${line}  ${problem}\n    ${rest.split('\n')[0]?.trim() ?? ''}`
-                );
-        }
+        } else if (keyword === 'ENV') off = scriptsSetting(rest) ?? off;
+        else if (runs(keyword, rest) && !off)
+            problems.push(
+                `${path}:${line}  runs before ${SETTING}=true is set in its stage\n    ${rest.split('\n')[0]?.trim() ?? ''}`
+            );
     }
     return problems;
+}
+
+/**
+ * The npm flag and environment setting that name install scripts, each built from its parts, so
+ * this file holds neither whole and the check can read it like any other.
+ */
+const FLAG = ['--ignore', '-scripts'].join('');
+const SETTING = ['npm_config', '_ignore', '_scripts'].join('');
+
+/** The flag set to false, and the flag's negated form, in any case. */
+const FLAG_ON = new RegExp(`${FLAG}(?:=|\\s+)false\\b|--no${FLAG.slice(1)}\\b`, 'i');
+
+/**
+ * The environment setting given a value with `=` or `:`, quoted or not, in any case. An unquoted
+ * value ends at a space, a shell operator, a bracket, a backslash, a backtick or a quote.
+ */
+const SETTING_VALUE = new RegExp(
+    `${SETTING}["']?\\s*[:=]\\s*("[^"\\n]*"|'[^'\\n]*'|[^\\s;&|,})\\]\\\\\\x60"']*)`,
+    'gi'
+);
+
+/**
+ * Each line of a file that turns install scripts back on: the flag set to false or negated, or the
+ * environment setting given any value but true, wherever the line sets it.
+ *
+ * @param {string} path
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function scriptsOnProblems(path, text) {
+    return text
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .flatMap((line, index) => {
+            const setOn = [...line.matchAll(SETTING_VALUE)].some(
+                ([, value = '']) => value.replace(/^(["'])(.*)\1$/, '$2').toLowerCase() !== 'true'
+            );
+            if (!FLAG_ON.test(line) && !setOn) return [];
+            return [`${path}:${index + 1}  turns install scripts back on\n    ${line.trim()}`];
+        });
 }

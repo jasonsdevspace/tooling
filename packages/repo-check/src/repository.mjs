@@ -1,12 +1,12 @@
 /**
- * The install check over a whole repository: its package roots, its `.npmrc` files and its
+ * The repo check over a whole repository: its package roots, its `.npmrc` files and its
  * Dockerfiles.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
-import { dockerfileProblems, npmrcProblems, packageRootsOf } from './rules.mjs';
+import { dockerfileProblems, npmrcProblems, packageRootsOf, scriptsOnProblems } from './rules.mjs';
 
 /**
  * Whether a path names a Dockerfile: `Dockerfile`, `Dockerfile.` followed by a name, or a name
@@ -38,9 +38,24 @@ export function repositoryRoot(folder) {
 }
 
 /**
- * Every place in the repository at `root` that lets npm run install scripts: a package root whose
- * `.npmrc` does not turn them off, a `.npmrc` that turns them back on, and a Dockerfile stage that
- * runs npm before turning them off, each as `path:line  what is wrong`, from the files git tracks
+ * Whether a file is read for a line that turns install scripts back on: any text file but a doc, a
+ * test or a `.npmrc`, which has a rule of its own.
+ *
+ * @param {string} path
+ */
+const readForScripts = (path) =>
+    !/\.(?:md|markdown|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|pdf|zip|gz|tgz|wasm|mp4|webm|mov)$/i.test(
+        path
+    ) &&
+    !/(?:^|\/)(?:docs|tests?|__tests__)\//.test(path) &&
+    !/\.(?:test|spec)\.[^/]+$/.test(path) &&
+    !/(?:^|\/)\.npmrc$/.test(path);
+
+/**
+ * Every place in the repository at `root` that lets npm run install scripts or fetch git and URL
+ * dependencies: a package root whose `.npmrc` leaves a setting out, a `.npmrc` that sets one
+ * otherwise, a Dockerfile stage that runs a command before turning install scripts off, and a line
+ * of any other text file but a doc or a test that turns them back on, each as `path:line  what is wrong`, from the files git tracks
  * and the new ones it would add.
  *
  * @param {string} root
@@ -73,9 +88,13 @@ export function installProblems(root) {
             .filter((path) => !npmrcs.has(path))
             .map(
                 (path) =>
-                    `${path}  a package root's .npmrc sets ignore-scripts=true, and there is none`
+                    `${path}  is missing, and each package root holds one with the three settings`
             ),
         ...[...npmrcs].flatMap((path) => npmrcProblems(path, read(path), roots.has(path))),
         ...listed.filter(isDockerfile).flatMap((path) => dockerfileProblems(path, read(path))),
+        ...listed.filter(readForScripts).flatMap((path) => {
+            const text = read(path);
+            return text.includes('\0') ? [] : scriptsOnProblems(path, text);
+        }),
     ];
 }

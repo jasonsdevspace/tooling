@@ -1,6 +1,6 @@
 # Changes for the next release
 
-A pull request that changes the install check, its README or its tests writes its changelog text here,
+A pull request that changes the repo check, its README or its tests writes its changelog text here,
 in a file of its own named for the issue it closes or is part of, such as `284.md`, and leaves
 `CHANGELOG.md` alone. Two pull requests open at once write different files, so merging one leaves
 the other free of conflicts. A later pull request for the same issue adds to its file.

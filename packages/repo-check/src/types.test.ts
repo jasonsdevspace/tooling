@@ -20,7 +20,7 @@ const TSC = fileURLToPath(new URL('../../../node_modules/typescript/bin/tsc', im
  */
 describe('the published types', () => {
     it('are the ones the JSDoc writes, file for file', () => {
-        const out = mkdtempSync(join(tmpdir(), 'install-check-types-'));
+        const out = mkdtempSync(join(tmpdir(), 'repo-check-types-'));
         try {
             execFileSync(
                 process.execPath,

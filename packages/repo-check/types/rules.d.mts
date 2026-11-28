@@ -1,6 +1,6 @@
 /**
- * What a `.npmrc` holds wrong: each line that sets `ignore-scripts` to anything but true, and, for a
- * package root's own file, no line that turns install scripts off.
+ * What a `.npmrc` holds wrong: each line that sets one of the settings the check holds to another
+ * value than it needs, and, for a package root's own file, each of those settings it leaves out.
  *
  * @param {string} path
  * @param {string} text
@@ -20,13 +20,23 @@ export function npmrcProblems(path: string, text: string, packageRoot: boolean):
  */
 export function packageRootsOf(manifests: ReadonlyMap<string, string>): string[];
 /**
- * Each RUN of a Dockerfile that runs npm or npx, as a command word, before its stage sets
- * `npm_config_ignore_scripts` to true with ENV or ARG, or that turns install scripts back on for
- * itself. A FROM starts a stage with the setting unset, unless it builds on an earlier stage, whose
- * setting it inherits.
+ * Each RUN of a Dockerfile, ONBUILD RUN among them, that comes before its stage sets the npm setting
+ * that turns install scripts off to true with ENV, whatever it runs, since a script it calls may run
+ * npm. ARG does not count, since a build argument can be set otherwise when the image is built. A
+ * FROM starts a stage with the setting unset, unless it builds on an earlier stage, whose setting it
+ * inherits.
  *
  * @param {string} path
  * @param {string} text
  * @returns {string[]}
  */
 export function dockerfileProblems(path: string, text: string): string[];
+/**
+ * Each line of a file that turns install scripts back on: the flag set to false or negated, or the
+ * environment setting given any value but true, wherever the line sets it.
+ *
+ * @param {string} path
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function scriptsOnProblems(path: string, text: string): string[];

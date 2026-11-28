@@ -14,9 +14,10 @@ export function isDockerfile(path: string): boolean;
  */
 export function repositoryRoot(folder: string): string;
 /**
- * Every place in the repository at `root` that lets npm run install scripts: a package root whose
- * `.npmrc` does not turn them off, a `.npmrc` that turns them back on, and a Dockerfile stage that
- * runs npm before turning them off, each as `path:line  what is wrong`, from the files git tracks
+ * Every place in the repository at `root` that lets npm run install scripts or fetch git and URL
+ * dependencies: a package root whose `.npmrc` leaves a setting out, a `.npmrc` that sets one
+ * otherwise, a Dockerfile stage that runs a command before turning install scripts off, and a line
+ * of any other text file but a doc or a test that turns them back on, each as `path:line  what is wrong`, from the files git tracks
  * and the new ones it would add.
  *
  * @param {string} root

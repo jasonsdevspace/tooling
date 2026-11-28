@@ -13,9 +13,9 @@ on:
             prose-check-sha256:
                 description: The checksum of the packed prose check the oldest Node check proved.
                 value: ${{ jobs.prose-check-floor.outputs.sha256 }}
-            install-check-sha256:
-                description: The checksum of the packed install check the oldest Node check proved.
-                value: ${{ jobs.install-check-floor.outputs.sha256 }}
+            repo-check-sha256:
+                description: The checksum of the packed repo check the oldest Node check proved.
+                value: ${{ jobs.repo-check-floor.outputs.sha256 }}
 
 permissions:
     contents: read
@@ -233,8 +233,8 @@ jobs:
                   retention-days: 7
                   overwrite: true
 
-    install-check-floor:
-        name: Install check on oldest Node
+    repo-check-floor:
+        name: Repo check on oldest Node
         runs-on: ubuntu-26.04
         timeout-minutes: 10
         outputs:
@@ -256,11 +256,11 @@ jobs:
 
             # Its checksum is a job output, which no other job in the run can change, unlike the
             # artifact, so a release publishes only this tarball.
-            - name: Pack the install check
+            - name: Pack the repo check
               id: pack
               run: |
-                  npm pack --workspace @jasonsdevspace/install-check --pack-destination "$RUNNER_TEMP"
-                  tarballs=("$RUNNER_TEMP"/jasonsdevspace-install-check-*.tgz)
+                  npm pack --workspace @jasonsdevspace/repo-check --pack-destination "$RUNNER_TEMP"
+                  tarballs=("$RUNNER_TEMP"/jasonsdevspace-repo-check-*.tgz)
                   if [ "${#tarballs[@]}" -ne 1 ] || [ ! -f "${tarballs[0]}" ]; then
                       echo "packing made ${#tarballs[@]} tarballs, not one"
                       exit 1
@@ -276,59 +276,66 @@ jobs:
 
             # That its exports, types, bin and files point at what the tarball holds.
             - name: Check the package manifest
-              run: npx --no-install publint packages/install-check
+              run: npx --no-install publint packages/repo-check
 
             # Written as an exact version, because setup-node given a range installs the newest
             # Node in it, the opposite of the oldest. The file is not committed.
             - name: Find the oldest supported Node
               run: |
                   node -e "import('./scripts/floor.mjs').then(({ floorOf }) => {
-                      const floor = floorOf(require('./packages/install-check/package.json').engines.node);
+                      const floor = floorOf(require('./packages/repo-check/package.json').engines.node);
                       if (floor === undefined) throw new Error('engines.node is not a range the oldest Node check can read');
                       console.log(floor);
-                  })" > install-check-floor
+                  })" > repo-check-floor
 
             - name: Set up the oldest supported Node
               uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
               with:
-                  node-version-file: install-check-floor
+                  node-version-file: repo-check-floor
 
             # Outside the repository, in a git repository of its own, so the command reads only
             # what that repository holds, and with install scripts off, as a repository installs it.
-            - name: Install the packed install check into an empty repository
+            - name: Install the packed repo check into an empty repository
               run: |
                   mkdir "$RUNNER_TEMP/consumer"
                   cd "$RUNNER_TEMP/consumer"
                   git init --quiet
                   npm init -y
-                  npm install --engine-strict --ignore-scripts --save-dev "$RUNNER_TEMP"/jasonsdevspace-install-check-*.tgz
+                  npm install --engine-strict --ignore-scripts --save-dev "$RUNNER_TEMP"/jasonsdevspace-repo-check-*.tgz
                   printf 'node_modules/\n' > .gitignore
-                  printf 'ignore-scripts=true\n' > .npmrc
+                  printf 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n' > .npmrc
                   printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
 
             - name: Pass a repository that turns install scripts off
               working-directory: ${{ runner.temp }}/consumer
               run: ./node_modules/.bin/check-installs
 
-            # Each refused with status 1, naming the file, so a crash is not taken for a refusal.
-            - name: Refuse a package root without the setting, and a Dockerfile stage without it
+            # Each refused with status 1, naming the file and the rule it breaks, so a crash is not
+            # taken for a refusal. The flag that turns scripts back on is written from its parts, so
+            # this file holds it nowhere whole.
+            - name: Refuse each rule broken
               working-directory: ${{ runner.temp }}/consumer
               run: |
                   refuses() {
                       status=0
                       ./node_modules/.bin/check-installs 2> refused || status=$?
-                      if [ "$status" -ne 1 ] || ! grep -q "$1" refused; then
-                          echo "the command did not refuse $1 with status 1, it gave $status:"
+                      if [ "$status" -ne 1 ] || ! grep -q "$1" refused || ! grep -q "$2" refused; then
+                          echo "the command did not refuse $1 for $2 with status 1, it gave $status:"
                           cat refused
                           exit 1
                       fi
                   }
                   mv .npmrc kept.npmrc
-                  refuses '^\.npmrc'
+                  refuses '^\.npmrc' 'is missing'
+                  printf 'ignore-scripts=true\n' > .npmrc
+                  refuses '^\.npmrc' 'sets allow-git=none'
                   mv kept.npmrc .npmrc
                   printf 'FROM node\nRUN npm ci\n' > Dockerfile
-                  refuses 'Dockerfile:2'
+                  refuses 'Dockerfile:2' 'runs before npm_config_ignore_scripts=true is set'
                   printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
+                  printf '{ "scripts": { "setup": "npm ci --ignore-scripts=%s" } }\n' false > package.json
+                  refuses '^package.json:1' 'turns install scripts back on'
+                  printf '{}\n' > package.json
                   rm refused
 
             # As Node and as a bundler resolve the types, with the package's own declarations
@@ -338,7 +345,7 @@ jobs:
               working-directory: ${{ runner.temp }}/consumer
               run: |
                   cat > uses.mts <<'TS'
-                  import { dockerfileProblems, installProblems } from '@jasonsdevspace/install-check';
+                  import { dockerfileProblems, installProblems } from '@jasonsdevspace/repo-check';
                   const found: string[] = installProblems('.');
                   const stage: string[] = dockerfileProblems('Dockerfile', 'FROM node\nRUN npm ci\n');
                   export const count: number = found.length + stage.length;
@@ -367,11 +374,11 @@ jobs:
 
             # A release publishes this tarball, now that it is proven, so the job that holds the
             # publish token never installs or builds anything.
-            - name: Upload the packed install check
+            - name: Upload the packed repo check
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
-                  name: install-check-package
-                  path: ${{ runner.temp }}/jasonsdevspace-install-check-*.tgz
+                  name: repo-check-package
+                  path: ${{ runner.temp }}/jasonsdevspace-repo-check-*.tgz
                   if-no-files-found: error
                   retention-days: 7
                   overwrite: true

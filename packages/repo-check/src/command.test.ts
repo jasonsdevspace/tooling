@@ -21,7 +21,7 @@ const isolated = (): NodeJS.ProcessEnv => ({
 });
 
 /** The setting each package root's `.npmrc` holds. */
-const OFF = 'ignore-scripts=true\n';
+const OFF = 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n';
 
 /**
  * Runs the command in a throwaway repository holding a package.json at its root, a `.npmrc` that
@@ -31,7 +31,7 @@ const runIn = (
     files: Record<string, string | null>,
     { args = [], git = true }: { args?: string[]; git?: boolean } = {}
 ) => {
-    const root = mkdtempSync(join(tmpdir(), 'install-check-'));
+    const root = mkdtempSync(join(tmpdir(), 'repo-check-'));
     const options = { cwd: root, env: isolated(), timeout: 10_000 };
     try {
         if (git) execFileSync('git', ['init', '--quiet'], options);
@@ -60,7 +60,9 @@ describe('check-installs', () => {
         const { status, stdout } = runIn({});
         expect(status).toBe(0);
         expect(stdout).toContain('Install check passed');
-        expect(runIn({ '.npmrc': '; settings\nignore-scripts = true\n' }).status).toBe(0);
+        expect(
+            runIn({ '.npmrc': `; settings\nignore-scripts = true\n${OFF.slice(20)}` }).status
+        ).toBe(0);
     });
 
     it('refuses a package root with no .npmrc, or one that leaves the setting out', () => {
@@ -111,6 +113,31 @@ describe('check-installs', () => {
         expect(status).toBe(1);
         expect(stderr).toContain('docker/app.Dockerfile:5');
         expect(stderr).not.toContain('docker/app.Dockerfile:3');
+    });
+
+    it('refuses a workflow or a package.json script that turns install scripts back on', () => {
+        // Each refused word is built from parts, so this file holds none of them whole.
+        const named = ['npm_config', '_ignore_scripts'].join('');
+        const off = ['--ignore', '-scripts'].join('');
+        const workflow = runIn({ '.github/workflows/ci.yml': `env:\n    ${named}: 'false'\n` });
+        expect(workflow.status).toBe(1);
+        expect(workflow.stderr).toContain('.github/workflows/ci.yml:2');
+        const script = runIn({
+            'package.json': `{ "scripts": { "setup": "npm ci ${off}=false" } }\n`,
+        });
+        expect(script.status).toBe(1);
+        expect(script.stderr).toContain('package.json:1');
+    });
+
+    it('reads no doc or test for a setting that turns install scripts back on', () => {
+        const off = ['--ignore', '-scripts'].join('');
+        expect(
+            runIn({
+                'docs/setup.md': `Never run npm ci ${off}=false.\n`,
+                'README.md': `Never run npm ci ${off}=false.\n`,
+                'src/setup.test.ts': `const flag = '${off}=false';\n`,
+            }).status
+        ).toBe(0);
     });
 
     it('exits 2 with how to run it when given an argument or run outside git', () => {

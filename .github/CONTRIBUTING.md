@@ -6,10 +6,13 @@ conduct](https://github.com/jasonsdevspace/.github/blob/main/CODE_OF_CONDUCT.md)
 
 ## Setting up and running the checks
 
-[Development](../README.md#development) in the README says how to install and what each check
-covers. Before a pull request, run the checks CI runs too:
+[Development](../README.md#development) in the README says what each check covers. Install, then set
+up the hooks by name, since the `.npmrc` turns npm's install scripts off and npm skips `prepare`
+with them, and run the checks CI runs before a pull request:
 
 ```bash
+npm ci
+npm run prepare
 npm run verify
 ```
 
@@ -46,7 +49,8 @@ Each package releases on its own, through the one release workflow, from a tag t
 as `prose-check-v0.2.0`. [How a release reaches npm](../README.md#how-a-release-reaches-npm) in the
 README says what the workflow does. Around it, a maintainer:
 
-- bumps the version in the package's `package.json`, adds a `## VERSION` heading to its
+- bumps the version in the package's `package.json`, runs `npm install --package-lock-only` so the
+  lockfile carries it, adds a `## VERSION` heading to its
   `CHANGELOG.md` that folds in every change file under its `changes` folder, which that pull request
   deletes, under the lead-ins the entries before it use, and points every link in its README pinned
   to a tag at the new version's tag, in a pull request of its own
@@ -60,6 +64,32 @@ README says what the workflow does. Around it, a maintainer:
 - moves each repository's exact pin to the promoted version, in a pull request of its own in that
   repository, reading the changelog first, since a minor version can fail a build that passed
 
+A new package's first version reaches npm through the release workflow too, with provenance, once
+npm holds the package's name so a trusted publisher can be registered for it. Before its tag, the
+`npm` environment allows the package's tag and the release tags ruleset covers it, and the
+maintainer has npm 11.15 or newer and a login session that has passed two-factor authentication.
+Then the maintainer:
+
+- merges the package's release pull request, which sets its first version, such as 0.1.0
+- packs a throwaway version, `0.1.0-bootstrap.0`, by setting it in a copy of the package and
+  running `npm pack`, and stages it by hand with
+  `npm stage publish TARBALL --access public --tag bootstrap`, since a prerelease needs a tag named
+  for it, which creates the name on npm and is never promoted
+- registers the trusted publisher with the `npm trust github` command below
+- in the same sitting, tags the merge commit with `PACKAGE-v0.1.0` and pushes the tag, so the
+  workflow stages 0.1.0 with provenance before the registration lapses
+- promotes 0.1.0 on the package's npm page, then rejects the staged bootstrap version there
+
+That is the plan. Only in an emergency, such as `npm trust` refusing a name whose only version is
+the staged bootstrap, is the first version staged by hand instead, from the tarball CI proved for
+the merge commit. The maintainer downloads it from that commit's push run with
+`gh run download RUN --name PACKAGE-package --dir DIR`, compares `shasum -a 256` of the tarball
+with the checksum in the oldest Node job's Packed summary, stages it with
+`npm stage publish TARBALL --access public`, promotes it, and tags that same commit with
+`git tag PACKAGE-v0.1.0 SHA` before pushing the tag. The release workflow then finds the version on
+npm, stages nothing and creates the GitHub release, and the trusted publisher is registered with
+the next version's tag.
+
 Once for each package, not for each release, its trusted publisher is registered on npm for the
 first tag that publishes through this repository's `release.yml`, with the workflow `release.yml`
 and the `npm` environment, never left blank, since a release's CI jobs run under the same file, and
@@ -69,18 +99,20 @@ repository or an earlier workflow is revoked and made again, not edited, since a
 clock:
 
 ```sh
-npm trust list @jasonsdevspace/prose-check
-npm trust revoke @jasonsdevspace/prose-check --id ID
-npm trust github @jasonsdevspace/prose-check --file release.yml --repo jasonsdevspace/tooling --env npm --allow-stage-publish
-npm trust list @jasonsdevspace/prose-check
+npm trust list @jasonsdevspace/PACKAGE
+npm trust revoke @jasonsdevspace/PACKAGE --id ID
+npm trust github @jasonsdevspace/PACKAGE --file release.yml --repo jasonsdevspace/tooling --env npm --allow-stage-publish
+npm trust list @jasonsdevspace/PACKAGE
 ```
 
 The last list shows one entry and no other: the repository `jasonsdevspace/tooling`, the workflow
 `release.yml` and the environment `npm`, allowed to stage but not to publish.
 
-The release workflow stops on a version npm already holds, staged or published, since it cannot tell
-one staged by an earlier run from one staged from other code. A run whose later step failed is
-repeated with "Re-run failed jobs", which keeps the staging and runs only what failed.
+The release workflow stages nothing for a version npm has already published, and passes, with its
+summary saying so. It stops on a version that is staged and not yet promoted, since npm's lookup
+does not show a staged version and the workflow cannot tell one staged by an earlier run from one
+staged from other code. A run whose later step failed is repeated with "Re-run failed jobs", which
+keeps the staging and runs only what failed.
 
 ## Security
 

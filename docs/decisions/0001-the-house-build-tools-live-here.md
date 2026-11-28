@@ -5,9 +5,10 @@
 ## Context
 
 Jason's repositories share build tools: the prose check, which holds every comment, document and
-page to the house's writing rules, and the commit message check and the lint, format and TypeScript
-settings, which each repository keeps a copy of today. A tool every repository runs needs one home, so a fix reaches each
-of them through a published version rather than a copy edited in each.
+page to the house's writing rules, and whose `check-commit-message` command holds a commit message
+and a pull request's title and body to the same rules, and the lint, format and TypeScript
+settings, which each repository keeps a copy of. A tool every repository runs needs one home, so a
+fix reaches each of them through a published version rather than a copy edited in each.
 
 The prose check began in the design kit's workspace, beside the kit's own package and its site, and
 released its first version from there. The kit is a design system, a package every app's pages load,
@@ -24,10 +25,10 @@ its workspace, before any other repository had them, rather than at the version 
 from npm.
 
 **B. A repository for each package.** The prose check in one repository and a package of shared
-lint and format settings in another. Rejected, since the tools share everything around their code: the release workflow, staging
-with provenance, change files, the check on the oldest Node a package supports and the checks every
-repository runs. Each repository would keep a copy of all of it, and the copies would drift, which is
-the trouble these tools exist to end.
+lint and format settings in another. Rejected, since the tools share everything around their code:
+the release workflow, staging with provenance, change files, the check on the oldest Node a package
+supports and the checks every repository runs. Each repository would keep a copy of all of it, and
+the copies would drift, which is the trouble these tools exist to end.
 
 **C. One repository for every tool, apart from the kit.** The tools as packages of one workspace of
 their own, released from one workflow that reads which package a tag names.
@@ -52,10 +53,12 @@ version, as every other repository does.
 - The kit runs the same published version of each tool as every other repository at the same pin,
   so a version that breaks one repository breaks the kit too once it moves its pin, where it is
   seen.
-- A new tool is a package with a tag of its own: a line in the release workflow's tag routing, its
-  tag allowed by the `npm` environment and the release tags ruleset, and a trusted publisher
-  registered on npm for this repository and `release.yml`, rather than a repository and a copy of
-  the release setup.
+- A new tool is a package with a tag of its own, rather than a repository and a copy of the release
+  setup. It needs five things in the release workflow, its tag pattern, the case that names its
+  package, a branch of the checksum the publish job checks, a line in the release notes' case and
+  the checksum output CI reports for it, along with an oldest Node job in CI that packs and proves
+  it, its tag allowed by the `npm` environment and the release tags ruleset, and a trusted publisher
+  registered on npm for this repository and `release.yml`.
 - npm's trusted publisher for each package names this repository and `release.yml`, so moving a
   package again means registering it again.
 - The prose check's first version, published from the design kit's repository by hand, carries no

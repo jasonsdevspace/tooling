@@ -14,12 +14,15 @@ so upgrade to pick up a fix.
 ## What is in scope
 
 These are tools that run in a repository's own checks, on a developer's machine and in CI, not a
-deployed service. Reports about the code are welcome, especially a way for a repository's files or
-its settings to make the prose check read a file outside the repository, run a command other than
-git, or take far longer than its text warrants.
+deployed service: the prose check, `@jasonsdevspace/prose-check`, and the repo check,
+`@jasonsdevspace/repo-check`. Reports about the code are welcome, especially a way for a
+repository's files or its settings to make either check read a file outside the repository, run a
+command other than git, take far longer than its text warrants, or pass a repository that lets npm
+run install scripts.
 
 ## Dependencies and licenses
 
-The prose check depends on nothing at run time. Everything the repository installs beside it is a
-tool for checking the code, and none of it ships. Among them, a lint plugin is under the GNU Lesser
-General Public License, which is accepted for tools that run only in development.
+Neither package depends on anything at run time. Everything the repository installs beside them is
+a tool for checking the code, and none of it ships. Among them, a lint plugin is under the GNU
+Lesser General Public License, and a CSS parser that a test tool brings in is under the Mozilla
+Public License, both accepted for tools that run only in development.

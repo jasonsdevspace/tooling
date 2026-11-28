@@ -31,10 +31,17 @@ const OFF = 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n';
  */
 const runIn = (
     files: Record<string, string | null>,
-    { args = [], git = true }: { args?: string[]; git?: boolean } = {}
+    { args = [], git = true, npm }: { args?: string[]; git?: boolean; npm?: string } = {}
 ) => {
     const root = mkdtempSync(join(tmpdir(), 'repo-check-'));
-    const options = { cwd: root, env: isolated(), timeout: 10_000 };
+    const env = isolated();
+    if (npm !== undefined) {
+        // A stand-in npm first on the path, which prints the version given.
+        const bin = mkdtempSync(join(tmpdir(), 'repo-check-npm-'));
+        writeFileSync(join(bin, 'npm'), `#!/bin/sh\necho ${npm}\n`, { mode: 0o755 });
+        env['PATH'] = `${bin}:${env['PATH'] ?? ''}`;
+    }
+    const options = { cwd: root, env, timeout: 10_000 };
     try {
         if (git) execFileSync('git', ['init', '--quiet'], options);
         const written: Record<string, string | null> = {
@@ -110,7 +117,7 @@ describe('check-installs', () => {
     it('refuses a Dockerfile stage that runs npm before turning install scripts off', () => {
         const { status, stderr } = runIn({
             'docker/app.Dockerfile':
-                'FROM node AS build\nENV npm_config_ignore_scripts=true\nRUN npm ci\nFROM node\nRUN npm ci\n',
+                'FROM node AS build\nENV npm_config_ignore_scripts=true npm_config_allow_git=none npm_config_allow_remote=none\nRUN npm ci\nFROM node\nRUN npm ci\n',
         });
         expect(status).toBe(1);
         expect(stderr).toContain('docker/app.Dockerfile:5');
@@ -142,6 +149,24 @@ describe('check-installs', () => {
         ).toBe(0);
     });
 
+    it('refuses an npm older than the first that reads allow-git and allow-remote', () => {
+        const old = runIn({}, { npm: '11.13.0' });
+        expect(old.status).toBe(1);
+        expect(old.stderr).toContain('npm 11.13.0 is older than 11.14.0');
+        expect(runIn({}, { npm: '11.14.0' }).status).toBe(0);
+        expect(runIn({}, { npm: '12.0.0' }).status).toBe(0);
+    });
+
+    it('refuses a workflow that lets npm fetch from git, or runs npx free to fetch', () => {
+        const flag = ['--allow', '-git'].join('');
+        const fetching = runIn({
+            '.github/workflows/ci.yml': `jobs:\n    a:\n        steps:\n            - run: npm ci ${flag}=all\n            - run: npx playwright install\n`,
+        });
+        expect(fetching.status).toBe(1);
+        expect(fetching.stderr).toContain('.github/workflows/ci.yml:4');
+        expect(fetching.stderr).toContain('.github/workflows/ci.yml:5');
+    });
+
     it('exits 2 with how to run it when given an argument or run outside git', () => {
         const given = runIn({}, { args: ['.npmrc'] });
         expect(given.status).toBe(2);
@@ -158,6 +183,7 @@ describe('the package', () => {
             'dockerfileProblems',
             'installProblems',
             'isDockerfile',
+            'npmFloorProblems',
             'npmrcProblems',
             'packageRootsOf',
             'repositoryRoot',

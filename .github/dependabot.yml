@@ -22,17 +22,15 @@ updates:
       labels: ['dependencies']
       groups:
           # The lint plugins the config package installs for a repository arrive in a pull request
-          # of their own, so a plugin update is released as a version of the package with its own
-          # change file. React's hooks plugin is not among them, since it is a peer each repository
+          # of their own. The package takes them by caret ranges, so a repository's lockfile moves
+          # to a new plugin through its own update, and this one tests the presets against it. React's hooks plugin is not among them, since it is a peer each repository
           # with React installs itself, and this repository's copy, for its tests, moves with the
           # rest.
           config-plugins:
               patterns:
                   - '@eslint/js'
                   - '@eslint-community/eslint-plugin-eslint-comments'
-                  - 'eslint-plugin-import-x'
                   - 'eslint-plugin-simple-import-sort'
-                  - 'eslint-plugin-sonarjs'
                   - 'globals'
           # TypeScript and its lint plugin move together. typescript-eslint
           # names the TypeScript versions it supports down to the minor, so

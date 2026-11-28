@@ -47,9 +47,8 @@ export default defineConfig(
 
 - **`base({ ignores })`** holds every kind of JavaScript and TypeScript file, CommonJS and module
   files and markup among them, to ESLint's and
-  typescript-eslint's recommended sets, the rules that catch real mistakes, such as `eqeqeq` and
-  SonarJS's identical-branch checks, the size budgets a function may not grow past, and the
-  mechanical rules `eslint --fix` applies, such as import order. Every callable is a value, written
+  typescript-eslint's recommended sets, the rules that catch real mistakes, such as `eqeqeq`, a value compared with itself and an `else if` that repeats its condition, the size budgets a function may not grow past, and the
+  mechanical rules `eslint --fix` applies, such as import order, with one import of each module, a type import apart. Every callable is a value, written
   as an arrow function. A disable comment has to say why after `--`, and one whose rule no longer
   fires fails the lint. A `.cjs` file reads as CommonJS, with `require` and `module.exports`. The
   builds in `dist` and the coverage reports are left out, beside the paths given.
@@ -126,8 +125,4 @@ before, with a rule that asks more or a new one, and a patch never does, so read
 before moving to a minor version.
 
 The package is MIT licensed, and the terms are in
-[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/config/LICENSE). Among the
-plugins it installs, SonarJS's ESLint plugin is under the GNU Lesser General Public License, version
-3 only. The package declares it as a dependency and npm installs it unchanged from its own published
-tarball, so none of its code is copied into or bundled with this package. Every other plugin it
-installs is MIT licensed.
+[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/config/LICENSE). Every plugin it installs is MIT licensed, and each is taken by a caret range, so a repository's own lockfile holds the version it runs.

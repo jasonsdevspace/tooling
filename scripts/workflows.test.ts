@@ -513,7 +513,7 @@ describe('the workflows', () => {
             );
     });
 
-    it('install the config with its plugins at exact versions, none of which runs an install script', () => {
+    it('install the config with its plugins by caret ranges, none of which runs an install script', () => {
         const manifest: unknown = JSON.parse(
             readFileSync(new URL('../packages/config/package.json', import.meta.url), 'utf8')
         );
@@ -524,12 +524,17 @@ describe('the workflows', () => {
         expect(Object.keys(deps).length).toBeGreaterThan(0);
         expect(
             Object.entries(deps)
-                .filter(([, version]) => !/^\d+\.\d+\.\d+$/.test(version))
+                .filter(([, version]) => !/^\^\d+\.\d+\.\d+$/.test(version))
                 .map(([name]) => name)
         ).toEqual([]);
         const lock = JSON.parse(
             readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
         ) as { packages: Record<string, LockEntry> };
+        expect(
+            Object.keys(lock.packages).filter((path) =>
+                /node_modules\/eslint-plugin-(?:import-x|sonarjs)$/.test(path)
+            )
+        ).toEqual([]);
         const config = lock.packages['packages/config'];
         const scripted = reachableFrom(
             'packages/config',

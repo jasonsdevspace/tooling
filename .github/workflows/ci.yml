@@ -333,7 +333,7 @@ jobs:
                   printf 'FROM node\nRUN npm ci\n' > Dockerfile
                   refuses 'Dockerfile:2' 'runs before npm_config_ignore_scripts=true is set'
                   printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
-                  printf '{ "scripts": { "setup": "npm ci --ignore-scripts=%s" } }\n' false > package.json
+                  printf '{ "scripts": { "setup": "npm ci %s%s" } }\n' --ignore-scripts =false > package.json
                   refuses '^package.json:1' 'turns install scripts back on'
                   printf '{}\n' > package.json
                   rm refused
@@ -345,10 +345,11 @@ jobs:
               working-directory: ${{ runner.temp }}/consumer
               run: |
                   cat > uses.mts <<'TS'
-                  import { dockerfileProblems, installProblems } from '@jasonsdevspace/repo-check';
+                  import { dockerfileProblems, installProblems, scriptsOnProblems } from '@jasonsdevspace/repo-check';
                   const found: string[] = installProblems('.');
                   const stage: string[] = dockerfileProblems('Dockerfile', 'FROM node\nRUN npm ci\n');
-                  export const count: number = found.length + stage.length;
+                  const lines: string[] = scriptsOnProblems('ci.yml', 'run: npm ci\n');
+                  export const count: number = found.length + stage.length + lines.length;
                   TS
                   tsc="$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"
                   node "$tsc" --strict --noEmit --skipLibCheck false --target es2023 --module nodenext --moduleResolution nodenext uses.mts

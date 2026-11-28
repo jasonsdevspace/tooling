@@ -41,7 +41,7 @@ const settingsOf = (text, key) => {
     for (const [index, line] of lines.entries()) {
         if (/^\s*\[/.test(line)) break;
         const found = /^\s*([^=;#\s][^=]*?)\s*(?:=(.*))?$/.exec(line);
-        if (!found || found[1] !== key) continue;
+        if (!found || iniValue(found[1] ?? '') !== key) continue;
         settings.push({
             value: found[2] === undefined ? 'true' : iniValue(found[2]),
             line: index + 1,
@@ -155,26 +155,46 @@ const workspacesOf = (text) => {
 export function packageRootsOf(manifests) {
     const folders = [...manifests.keys()]
         .map((path) => (path === 'package.json' ? '' : path.slice(0, -'/package.json'.length)))
-        .sort((a, b) => a.length - b.length);
-    const lists = folders.map((folder) => {
-        const globs = workspacesOf(
-            manifests.get(folder === '' ? 'package.json' : `${folder}/package.json`) ?? ''
-        ).flatMap(expanded);
-        const pattern = (/** @type {string} */ glob) => workspacePattern(folder, glob);
-        return {
-            included: globs.filter((glob) => !glob.startsWith('!')).map(pattern),
-            excluded: globs
-                .filter((glob) => glob.startsWith('!'))
-                .map((glob) => pattern(glob.slice(1))),
-        };
-    });
-    const isWorkspace = (/** @type {string} */ folder) =>
-        lists.some(
-            ({ included, excluded }) =>
-                included.some((pattern) => pattern.test(folder)) &&
-                !excluded.some((pattern) => pattern.test(folder))
+        .sort((a, b) => b.length - a.length);
+    const lists = new Map(
+        folders.map((folder) => {
+            const globs = workspacesOf(
+                manifests.get(folder === '' ? 'package.json' : `${folder}/package.json`) ?? ''
+            ).flatMap(expanded);
+            const pattern = (/** @type {string} */ glob) => workspacePattern(folder, glob);
+            return [
+                folder,
+                {
+                    declares: globs.length > 0,
+                    included: globs.filter((glob) => !glob.startsWith('!')).map(pattern),
+                    excluded: globs
+                        .filter((glob) => glob.startsWith('!'))
+                        .map((glob) => pattern(glob.slice(1))),
+                },
+            ];
+        })
+    );
+    const above = (/** @type {string} */ folder) =>
+        folders.filter(
+            (other) => other !== folder && (other === '' || folder.startsWith(`${other}/`))
         );
-    return folders.filter((folder) => folder === '' || !isWorkspace(folder));
+    // A folder is a workspace of the nearest package above it whose globs list it, unless that
+    // package's `!` entries leave it out. One that declares workspaces of its own is a package root,
+    // since npm reads only one level of workspaces, from the root it runs in.
+    const isWorkspace = (/** @type {string} */ folder) => {
+        for (const other of above(folder)) {
+            const list = lists.get(other);
+            if (list?.included.some((pattern) => pattern.test(folder)))
+                return !list.excluded.some((pattern) => pattern.test(folder));
+        }
+        return false;
+    };
+    return folders
+        .filter(
+            (folder) =>
+                folder === '' || lists.get(folder)?.declares === true || !isWorkspace(folder)
+        )
+        .sort((a, b) => a.length - b.length);
 }
 
 /**
@@ -193,7 +213,7 @@ const scriptsSetting = (rest) => {
     /** @type {boolean | undefined} */
     let setting;
     for (const [key = '', value = ''] of all) {
-        if (key.toLowerCase() === SETTING) setting = value.trim() === 'true';
+        if (SETTING_NAME.test(key)) setting = value.trim() === 'true';
     }
     return setting;
 };
@@ -216,9 +236,10 @@ const instructionsOf = (text) => {
         let joined = lines[at] ?? '';
         at += 1;
         if (/^\s*#/.test(joined) || joined.trim() === '') continue;
-        while (joined.endsWith('\\') && at < lines.length) {
+        while (/\\[ \t]*$/.test(joined) && at < lines.length) {
             const next = lines[at] ?? '';
             at += 1;
+            joined = joined.replace(/\\[ \t]*$/, '\\');
             if (!/^\s*#/.test(next) && next.trim() !== '')
                 joined = `${joined.slice(0, -1)} ${next}`;
         }
@@ -304,26 +325,50 @@ export function dockerfileProblems(path, text) {
 
 /**
  * The npm flag and environment setting that name install scripts, each built from its parts, so
- * this file holds neither whole and the check can read it like any other.
+ * this file holds neither whole and the check can read it like any other. npm reads the setting's
+ * name in any case, with an underscore or a hyphen after the prefix.
  */
 const FLAG = ['--ignore', '-scripts'].join('');
 const SETTING = ['npm_config', '_ignore', '_scripts'].join('');
+const SETTING_SOURCE = `${SETTING.slice(0, -'_scripts'.length)}[-_]scripts`;
+const SETTING_NAME = new RegExp(`^${SETTING_SOURCE}$`, 'i');
 
-/** The flag set to false, and the flag's negated form, in any case. */
-const FLAG_ON = new RegExp(`${FLAG}(?:=|\\s+)false\\b|--no${FLAG.slice(1)}\\b`, 'i');
+/** A value with its quotes taken off, in lower case. */
+const plain = (/** @type {string} */ value) => value.replace(/^(["'])(.*)\1$/, '$2').toLowerCase();
+
+/**
+ * The flag given a value with `=`, which npm reads as false for anything but true, and the flag
+ * followed by a word npm reads as false, quoted or not.
+ */
+const FLAG_VALUE = new RegExp(`${FLAG}=("[^"]*"|'[^']*'|[^\\s;&|)]*)`, 'gi');
+const FLAG_FALSE = new RegExp(
+    `${FLAG}\\s+(["']?)(?:false|0|null)\\1(?![\\w-])|--no${FLAG.slice(1)}\\b`,
+    'i'
+);
 
 /**
  * The environment setting given a value with `=` or `:`, quoted or not, in any case. An unquoted
  * value ends at a space, a shell operator, a bracket, a backslash, a backtick or a quote.
  */
 const SETTING_VALUE = new RegExp(
-    `${SETTING}["']?\\s*[:=]\\s*("[^"\\n]*"|'[^'\\n]*'|[^\\s;&|,})\\]\\\\\\x60"']*)`,
+    `${SETTING_SOURCE}["']?\\s*[:=]\\s*("[^"\\n]*"|'[^'\\n]*'|[^\\s;&|,})\\]\\\\\\x60"']*)`,
     'gi'
 );
 
+/** npm's subcommands that install, in every spelling it accepts. */
+const INSTALLS =
+    'ci|clean-install|ic|install-clean|isntall-clean|i|in|ins|inst|insta|instal|install|isnt|isnta|isntal|isntall|add|it|cit|sit|install-test|install-ci-test|clean-install-test|rebuild|rb|update|up|upgrade|udpate|dedupe|ddp|link|ln';
+
+/** An npm install on a line that names another project with `--prefix` or `-C`. */
+const INSTALL = new RegExp(`(?:^|[\\s;&|(])npm\\s(?:.*\\s)?(?:${INSTALLS})(?=\\s|$)`);
+const ELSEWHERE = /\s(?:--prefix(?:=|\s)|-C\s)/;
+const FLAG_OFF = new RegExp(`${FLAG}(?![=\\w-])|${FLAG}=(["']?)true\\1(?![\\w-])`, 'i');
+
 /**
- * Each line of a file that turns install scripts back on: the flag set to false or negated, or the
- * environment setting given any value but true, wherever the line sets it.
+ * Each line of a file that turns install scripts back on: the flag given any value npm reads as
+ * false or negated, the environment setting given any value but true, or an install pointed at
+ * another project with `--prefix` or `-C`, which reads that project's settings rather than this
+ * one's, without the flag that turns them off.
  *
  * @param {string} path
  * @param {string} text
@@ -334,10 +379,14 @@ export function scriptsOnProblems(path, text) {
         .replace(/\r\n/g, '\n')
         .split('\n')
         .flatMap((line, index) => {
+            const flagOn =
+                FLAG_FALSE.test(line) ||
+                [...line.matchAll(FLAG_VALUE)].some(([, value = '']) => plain(value) !== 'true');
             const setOn = [...line.matchAll(SETTING_VALUE)].some(
-                ([, value = '']) => value.replace(/^(["'])(.*)\1$/, '$2').toLowerCase() !== 'true'
+                ([, value = '']) => plain(value) !== 'true'
             );
-            if (!FLAG_ON.test(line) && !setOn) return [];
+            const elsewhere = INSTALL.test(line) && ELSEWHERE.test(line) && !FLAG_OFF.test(line);
+            if (!flagOn && !setOn && !elsewhere) return [];
             return [`${path}:${index + 1}  turns install scripts back on\n    ${line.trim()}`];
         });
 }

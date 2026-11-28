@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Fails when the repository it is run in lets npm run install scripts: a package root whose `.npmrc`
- * does not set `ignore-scripts=true`, a `.npmrc` that turns them back on, or a Dockerfile stage that
- * runs npm before setting `npm_config_ignore_scripts=true`, naming each file, and passes otherwise.
+ * Fails when the repository it is run in lets npm run install scripts or fetch git and URL
+ * dependencies: a package root whose `.npmrc` leaves out `ignore-scripts=true`, `allow-git=none` or
+ * `allow-remote=none`, a `.npmrc` that sets one otherwise, a file that turns install scripts back on,
+ * or a Dockerfile stage that runs before setting them off, naming each file, and passes otherwise.
  * It exits 0 on a pass, 1 on a refusal, and 2 with how to run it when given an argument or run
  * outside a git repository.
  */

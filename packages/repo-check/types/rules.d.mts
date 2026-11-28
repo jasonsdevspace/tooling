@@ -32,8 +32,10 @@ export function packageRootsOf(manifests: ReadonlyMap<string, string>): string[]
  */
 export function dockerfileProblems(path: string, text: string): string[];
 /**
- * Each line of a file that turns install scripts back on: the flag set to false or negated, or the
- * environment setting given any value but true, wherever the line sets it.
+ * Each line of a file that turns install scripts back on: the flag given any value npm reads as
+ * false or negated, the environment setting given any value but true, or an install pointed at
+ * another project with `--prefix` or `-C`, which reads that project's settings rather than this
+ * one's, without the flag that turns them off.
  *
  * @param {string} path
  * @param {string} text

@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import * as exported from './index.mjs';
+
 /** The command, as a repository that installs the package runs it. */
 const COMMAND = fileURLToPath(new URL('../bin/check-installs.mjs', import.meta.url));
 
@@ -147,5 +149,19 @@ describe('check-installs', () => {
         const outside = runIn({}, { git: false });
         expect(outside.status).toBe(2);
         expect(outside.stderr).toContain('not inside a git repository');
+    });
+});
+
+describe('the package', () => {
+    it('exports every rule the command is built from', () => {
+        expect(Object.keys(exported).sort()).toEqual([
+            'dockerfileProblems',
+            'installProblems',
+            'isDockerfile',
+            'npmrcProblems',
+            'packageRootsOf',
+            'repositoryRoot',
+            'scriptsOnProblems',
+        ]);
     });
 });

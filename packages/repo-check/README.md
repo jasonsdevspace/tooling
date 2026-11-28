@@ -23,12 +23,16 @@ rather than reading the commands it runs.
   own that no package above it lists as a workspace, such as a demo with its own dependencies. npm
   reads a project's `.npmrc` from the root of the project it runs in, and a workspace shares its
   root's. Workspace globs are read as npm reads them, a brace list expanded and a `!` entry leaving
-  a folder out, so a folder left out is a package root of its own.
+  a folder out, so a folder left out is a package root of its own, and so is a workspace that
+  declares workspaces of its own, since npm reads only one level of them.
 - **No `.npmrc` sets any of the three otherwise.**
-- **No file turns install scripts back on.** The flag set to false or written in its negated form,
-  or the `npm_config_ignore_scripts` setting given anything but `true`, with `=` or `:`, in any
-  case, is refused in a workflow's `env` block, a `package.json` script, a hook, a shell script, a
-  Dockerfile or any other text file the repository tracks, apart from its docs and its tests.
+- **No file turns install scripts back on.** The flag given any value npm reads as false, such as
+  `false`, `0` or `null`, quoted or not, or written in its negated form, the
+  `npm_config_ignore_scripts` setting given anything but `true`, with `=` or `:`, in any case and
+  with a hyphen or an underscore before `scripts`, and an install pointed at another folder with
+  `--prefix` or `-C` without the flag that turns them off, are refused in a workflow's `env` block,
+  a `package.json` script, a hook, a shell script, a Dockerfile or any other text file the
+  repository tracks, apart from its docs and its tests.
 - **Every Dockerfile stage sets `ENV npm_config_ignore_scripts=true` before its first RUN**,
   whatever that RUN runs, since a script it calls may run npm, and before an `ONBUILD RUN` too. Only
   ENV counts, since a build argument set with ARG can be given another value when the image is
@@ -61,8 +65,10 @@ still run their intended script if `ignore-scripts` is set". So under the rule:
 - **`allowScripts` can go.** The field lists packages allowed to run install scripts, and npm 11
   does nothing with it by default.
 
-A global install, such as `npm install -g`, does not read a project's `.npmrc`, so it turns install
-scripts off itself.
+A project's `.npmrc` covers the installs run in that project. An install pointed elsewhere reads the
+other place's settings instead: a global install, such as `npm install -g`, or one given another
+folder with `--prefix` or `-C`. So it carries the flag that turns install scripts off itself, and an
+install given `--prefix` or `-C` without it is refused.
 
 ## What it reads
 
@@ -85,10 +91,11 @@ ignores.
 
 ```sh
 npm install --save-dev --save-exact @jasonsdevspace/repo-check
-printf 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n' >> .npmrc
+printf '\nignore-scripts=true\nallow-git=none\nallow-remote=none\n' >> .npmrc
 ```
 
-The settings are added to the `.npmrc` each package root already has, beside what it holds. It
+The settings are added to the `.npmrc` each package root already has, beside what it holds, after a
+newline in case its last line has none. It
 needs Node 24 or later and git. The install pins one exact version, since a minor version can fail
 a build that passed, as [Versions and license](#versions-and-license) explains.
 

@@ -36,8 +36,11 @@ Option B, as the repo check's `check-installs` command.
   every `pre` and `post` script. Setup runs `npm run prepare` by name after installing, so hooks are
   set up, and a package that built in `prepack` builds by name before it packs. A script run by name
   still runs under the setting, as npm's docs say.
-- A global install reads no project `.npmrc`, so it turns install scripts off itself, and the
-  repository's own workflow test holds it to that.
+- A project's `.npmrc` covers the installs run in that project. An install pointed elsewhere, a
+  global install or one given another folder with `--prefix` or `-C`, reads the other place's
+  settings, so it carries the flag that turns install scripts off itself. The check refuses one
+  given `--prefix` or `-C` without it, and this repository's workflow test holds its global
+  installs to it.
 - A Dockerfile stage needs the setting before any RUN, whatever the RUN runs, which asks a line of a
   stage that runs no npm at all.
 

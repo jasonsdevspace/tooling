@@ -1,7 +1,7 @@
 {
     "name": "@jasonsdevspace/repo-check",
     "version": "0.1.0",
-    "description": "Fails a build wherever npm could run install scripts: a package root whose .npmrc does not set ignore-scripts=true, a .npmrc that turns it back on, or a Dockerfile stage that runs npm before turning it off.",
+    "description": "Fails a build wherever npm could run install scripts or fetch git or URL dependencies: a package root whose .npmrc lacks ignore-scripts=true, allow-git=none or allow-remote=none, a file that turns scripts back on, or an unset Dockerfile stage.",
     "keywords": [
         "npm",
         "install-scripts",

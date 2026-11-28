@@ -186,3 +186,87 @@ describe('a file that runs commands', () => {
         expect(scriptsOnProblems('x.mjs', ` * sets \`${named}=true\`, and passes\n`)).toEqual([]);
     });
 });
+
+describe('the final review', () => {
+    // Each refused word is built from parts, so this file holds none of them whole.
+    const off = ['--ignore', '-scripts'].join('');
+    const named = ['npm_config', '_ignore', '_scripts'].join('');
+    const hyphened = ['npm_config', '_ignore', '-scripts'].join('');
+
+    it('refuses the flag given any value but true, quoted or not, as npm reads it', () => {
+        for (const value of ['0', 'null', '"false"', "'false'", '', 'no'])
+            expect(
+                scriptsOnProblems('ci.yml', `run: npm ci ${off}=${value}\n`),
+                value
+            ).toHaveLength(1);
+        for (const value of ['false', '0', 'null', '"false"', "'false'"])
+            expect(
+                scriptsOnProblems('ci.yml', `run: npm ci ${off} ${value}\n`),
+                value
+            ).toHaveLength(1);
+        expect(scriptsOnProblems('ci.yml', `run: npm ci ${off}=true\n`)).toEqual([]);
+        expect(scriptsOnProblems('ci.yml', `run: npm ci ${off}="true"\n`)).toEqual([]);
+        expect(scriptsOnProblems('ci.yml', `run: npm install ${off} left-pad\n`)).toEqual([]);
+    });
+
+    it('reads the setting with a hyphen after the prefix too, in any case', () => {
+        expect(
+            scriptsOnProblems('ci.yml', `env:\n    ${hyphened.toUpperCase()}: 'false'\n`)
+        ).toHaveLength(1);
+        expect(lines(`FROM node\nENV ${hyphened}=true\nRUN npm ci\n`)).toEqual([]);
+        expect(lines(`FROM node\nENV ${named.toUpperCase()}=true\nRUN npm ci\n`)).toEqual([]);
+    });
+
+    it('refuses an install pointed outside the project without the flag', () => {
+        expect(
+            scriptsOnProblems('ci.yml', 'run: npm --prefix /tmp/x install left-pad\n')
+        ).toHaveLength(1);
+        expect(scriptsOnProblems('ci.yml', 'run: npm ci -C ../other\n')).toHaveLength(1);
+        expect(scriptsOnProblems('ci.yml', 'run: npm install --prefix=/opt/app\n')).toHaveLength(1);
+        expect(scriptsOnProblems('ci.yml', `run: npm --prefix /tmp/x install ${off}\n`)).toEqual(
+            []
+        );
+        expect(scriptsOnProblems('ci.yml', 'run: npm --prefix demo run build\n')).toEqual([]);
+    });
+
+    it('joins a continued line whose backslash has spaces or tabs after it', () => {
+        expect(
+            lines('FROM node\nENV CI=1 \\ \t\n    npm_config_ignore_scripts=true\nRUN npm ci\n')
+        ).toEqual([]);
+        expect(lines('FROM node\nRUN echo start \\  \n    && npm ci\nRUN echo done\n')).toEqual([
+            '2',
+            '4',
+        ]);
+    });
+});
+
+describe('a .npmrc, read as npm reads it', () => {
+    it('unquotes a key before reading it', () => {
+        expect(npmrcProblems('docs/.npmrc', '"ignore-scripts"=false\n', false)).toEqual([
+            'docs/.npmrc:1  ignore-scripts=false turns install scripts back on',
+        ]);
+        expect(npmrcProblems('docs/.npmrc', "'allow-git'=all\n", false)).toHaveLength(1);
+    });
+});
+
+describe('nested workspaces', () => {
+    const roots = (files: Record<string, string>) => packageRootsOf(new Map(Object.entries(files)));
+
+    it('makes a workspace that declares workspaces of its own a package root for its children', () => {
+        expect(
+            roots({
+                'package.json': '{ "workspaces": ["packages/*"] }',
+                'packages/a/package.json': '{ "workspaces": ["sub/*"] }',
+                'packages/a/sub/x/package.json': '{}',
+                'packages/b/package.json': '{}',
+            })
+        ).toEqual(['', 'packages/a']);
+        expect(
+            roots({
+                'package.json': '{ "workspaces": ["packages/**"] }',
+                'packages/a/package.json': '{ "workspaces": ["sub/*"] }',
+                'packages/a/sub/x/package.json': '{}',
+            })
+        ).toEqual(['', 'packages/a']);
+    });
+});

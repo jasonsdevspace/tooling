@@ -56,6 +56,43 @@ const jobsOf = (text: string) => {
         }));
 };
 
+/** npm's subcommands that install, in every spelling it accepts. */
+const INSTALLS = [
+    'ci',
+    'clean-install',
+    'ic',
+    'install-clean',
+    'isntall-clean',
+    'i',
+    'in',
+    'ins',
+    'inst',
+    'insta',
+    'instal',
+    'install',
+    'isnt',
+    'isnta',
+    'isntal',
+    'isntall',
+    'add',
+    'it',
+    'cit',
+    'sit',
+    'install-test',
+    'install-ci-test',
+    'clean-install-test',
+    'rebuild',
+    'rb',
+    'update',
+    'up',
+    'upgrade',
+    'udpate',
+    'dedupe',
+    'ddp',
+    'link',
+    'ln',
+].join('|');
+
 /** npm's flags before its subcommand, each with its value where it takes one. */
 const FLAGS = String.raw`(?:(?:--prefix|--workspace|-w|-C|--cache|--loglevel|--userconfig)\s+\S+\s+|-\S+\s+)*`;
 
@@ -64,7 +101,7 @@ const FLAGS = String.raw`(?:(?:--prefix|--workspace|-w|-C|--cache|--loglevel|--u
  * install or exec subcommand after only its flags. A plain match, not a reading of the shell.
  */
 const INSTALLING = new RegExp(
-    String.raw`(?:^|[\s;&|(])(?:npx(?=\s)|npm\s+${FLAGS}(?:ci|install|i|add|exec|x|rebuild|update|link|install-test|it)(?=\s|$))`
+    String.raw`(?:^|[\s;&|(])(?:npx(?=\s)|npm\s+${FLAGS}(?:${INSTALLS}|exec|x)(?=\s|$))`
 );
 
 /**
@@ -88,7 +125,9 @@ const outsideInstalls = (text: string): string[] =>
                 .filter(
                     (line) =>
                         INSTALLING.test(line) &&
-                        (outside || /\s(?:-g|--global)(?=\s|$)/.test(line)) &&
+                        (outside ||
+                            /\s(?:-g|--global)(?=\s|$)/.test(line) ||
+                            /\s(?:--prefix(?:=|\s)|-C\s)/.test(line)) &&
                         !/--ignore-scripts(?![=\w-])|--ignore-scripts=true/.test(line)
                 )
                 .map((line) => line.trim());
@@ -288,6 +327,27 @@ describe('the workflows', () => {
 
     it('fetch nothing with npx, npm exec, npm x or npm init without --no-install', () => {
         expect(fetchingLines(steps.flatMap(({ text }) => text.split('\n')))).toEqual([]);
+    });
+
+    it("read an install in any of npm's spellings, and one pointed outside the repository", () => {
+        const job = (run: string) =>
+            `jobs:\n    a:\n        steps:\n            - uses: actions/checkout@v7\n            - run: ${run}\n`;
+        for (const command of [
+            'clean-install',
+            'ic',
+            'install-clean',
+            'in',
+            'ins',
+            'cit',
+            'install-ci-test',
+            'up',
+            'upgrade',
+            'dedupe',
+        ])
+            expect(outsideInstalls(job(`npm -g ${command} x`)), command).toHaveLength(1);
+        expect(outsideInstalls(job('npm --prefix /tmp/x install left-pad'))).toHaveLength(1);
+        expect(outsideInstalls(job('npm ci -C ../other'))).toHaveLength(1);
+        expect(outsideInstalls(job('npm ci'))).toEqual([]);
     });
 
     it('read a fetch by its words', () => {

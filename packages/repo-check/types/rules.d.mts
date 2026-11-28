@@ -23,8 +23,9 @@ export function packageRootsOf(manifests: ReadonlyMap<string, string>): string[]
  * Each RUN of a Dockerfile, ONBUILD RUN among them, that comes before its stage holds npm's three
  * settings, whatever it runs, since a script it calls may run npm: install scripts turned off, and
  * git and URL dependencies stopped, each set with ENV, or the `.npmrc` that holds all three copied
- * in. An image build often copies only a `package.json` and its lockfile before installing, so the
- * repository's `.npmrc` counts only where the stage copies it. ARG does not count, since a build
+ * into the folder the RUN runs in. An image build often copies only a `package.json` and its
+ * lockfile before installing, so the repository's `.npmrc` counts only where the stage copies it.
+ * ARG does not count, since a build
  * argument can be set otherwise when the image is built. A FROM starts a stage with nothing set,
  * unless it builds on an earlier stage, whose settings and files it inherits.
  *
@@ -34,7 +35,11 @@ export function packageRootsOf(manifests: ReadonlyMap<string, string>): string[]
  */
 export function dockerfileProblems(path: string, text: string): string[];
 /**
- * Each line of a file that lets npm do what the settings stop, as `lineProblem` reads it.
+ * Each line of a file that lets npm do what the settings stop: one that sets install scripts on, or
+ * git or URL dependencies allowed, by a flag or an `npm_config_` setting, one that writes a setting
+ * to the project's `.npmrc` with npm's config command, an install outside the project without the
+ * flags that hold its settings, and a run of npx, or npm's exec, create or init command, that may
+ * fetch a package to run it.
  *
  * @param {string} path
  * @param {string} text
@@ -43,7 +48,8 @@ export function dockerfileProblems(path: string, text: string): string[];
 export function scriptsOnProblems(path: string, text: string): string[];
 /**
  * What is wrong with the npm that runs the check, given its version: older than the first that
- * reads `allow-git` and `allow-remote`, so it would pass over both settings without a word. The
+ * reads `allow-git` and `allow-remote`, a prerelease of it included, so it would pass over both
+ * settings without a word. The
  * floor is held here rather than by `engines.npm`, since Dependabot's npm updater reads that field
  * and may refuse to run on an older npm.
  *
@@ -52,12 +58,13 @@ export function scriptsOnProblems(path: string, text: string): string[];
  */
 export function npmFloorProblems(version: string): string[];
 /**
- * What a stage has set before a RUN: install scripts off, git and URL dependencies each stopped, and
- * the `.npmrc` copied in, which holds all three.
+ * What a stage has set before a RUN: install scripts off, git and URL dependencies each stopped,
+ * the folder it runs in, and the folder a `.npmrc` that holds all three was copied into, if any.
  */
 export type Held = {
     scripts: boolean;
     git: boolean;
     remote: boolean;
-    npmrc: boolean;
+    workdir: string;
+    npmrc: string | undefined;
 };

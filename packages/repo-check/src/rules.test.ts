@@ -243,9 +243,9 @@ describe('the final review', () => {
         ).toHaveLength(1);
         expect(scriptsOnProblems('ci.yml', 'run: npm ci -C ../other\n')).toHaveLength(1);
         expect(scriptsOnProblems('ci.yml', 'run: npm install --prefix=/opt/app\n')).toHaveLength(1);
-        expect(scriptsOnProblems('ci.yml', `run: npm --prefix /tmp/x install ${off}\n`)).toEqual(
-            []
-        );
+        expect(
+            scriptsOnProblems('ci.yml', `run: npm --prefix /tmp/x install ${off} --offline\n`)
+        ).toEqual([]);
         expect(scriptsOnProblems('ci.yml', 'run: npm --prefix demo run build\n')).toEqual([]);
     });
 
@@ -395,6 +395,7 @@ describe('the installs no project setting reaches', () => {
         expect(at('npm install --location=global left-pad')).toBe(1);
         expect(at(`npm install -g --offline ${off} "$tarball"`)).toBe(0);
         expect(at('npm ls -g')).toBe(0);
+        expect(at('npm ci && git log -g')).toBe(0);
     });
 
     it('refuses npx, npm exec and npm x unless they are told not to fetch', () => {
@@ -404,7 +405,9 @@ describe('the installs no project setting reaches', () => {
         expect(at('npx --yes tsc')).toBe(1);
         expect(at('npx --no-install --yes tsc')).toBe(1);
         expect(at('npx --no-install tsc')).toBe(0);
-        expect(at('npm exec --no-install -- tsc')).toBe(0);
+        expect(at('npm exec --no -- tsc')).toBe(0);
+        expect(at('npm exec --yes=false -- tsc')).toBe(0);
+
         expect(at('npx --no tsc')).toBe(0);
         expect(at('echo done && npx --no-install tsc')).toBe(0);
     });
@@ -422,11 +425,46 @@ describe('the installs no project setting reaches', () => {
     });
 });
 
+describe('the review of the first round', () => {
+    // Each refused word is built from parts, so this file holds none of them whole.
+    const off = ['--ignore', '-scripts'].join('');
+    const fetchOff = ['--allow', '-git=none ', '--allow', '-remote=none'].join('');
+    const at = (line: string) => scriptsOnProblems('ci.yml', `run: ${line}\n`).length;
+
+    it("refuses npm's exec command given --no-install, which it does not read as --no", () => {
+        expect(at('npm exec --no-install -- tsc')).toBe(1);
+        expect(at('npm x --no-install tsc')).toBe(1);
+    });
+
+    it('refuses an install outside the project that turns install scripts off but may still fetch', () => {
+        expect(at(`npm install -g ${off} github:someone/tool`)).toBe(1);
+        expect(at(`npm ci --prefix other ${off}`)).toBe(1);
+        expect(at(`npm install -g ${off} ${fetchOff} left-pad`)).toBe(0);
+        expect(at(`npm install -g --offline ${off} "$tarball"`)).toBe(0);
+    });
+
+    it('counts a copied .npmrc only in the folder the stage runs in', () => {
+        expect(allLines('FROM node\nCOPY .npmrc /root/backup/\nRUN npm ci\n')).toEqual(['3']);
+        expect(
+            allLines('FROM node\nWORKDIR /app\nCOPY .npmrc package.json ./\nRUN npm ci\n')
+        ).toEqual([]);
+        expect(allLines('FROM node\nWORKDIR /app\nCOPY [".npmrc", "/app/"]\nRUN npm ci\n')).toEqual(
+            []
+        );
+        expect(
+            allLines('FROM node\nWORKDIR /app\nCOPY .npmrc ./\nWORKDIR /srv\nRUN npm ci\n')
+        ).toEqual(['5']);
+    });
+});
+
 describe('the npm floor', () => {
     it('refuses an npm older than the first that reads allow-git and allow-remote', () => {
         expect(npmFloorProblems('11.13.9')).toHaveLength(1);
         expect(npmFloorProblems('10.9.2\n')).toHaveLength(1);
         expect(npmFloorProblems('11.14.0')).toEqual([]);
+        expect(npmFloorProblems('11.14.0-pre.0')).toHaveLength(1);
+        expect(npmFloorProblems('11.14.1-pre.0')).toEqual([]);
+
         expect(npmFloorProblems('11.19.1-pre.0+build.5')).toEqual([]);
         expect(npmFloorProblems('12.0.0')).toEqual([]);
     });

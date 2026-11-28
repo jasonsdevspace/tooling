@@ -222,16 +222,43 @@ const envSettings = (rest) => {
 };
 
 /**
- * Whether a COPY or ADD instruction's words copy a `.npmrc` into the image, named as one of its
- * sources. A copy of a whole folder does not count, since a `.dockerignore` may leave the file out.
+ * A folder in the image, from where a stage stands and a path that may be relative to it, with no
+ * slash at its end but the root's own.
+ *
+ * @param {string} from
+ * @param {string} path
+ */
+const folderAt = (from, path) => {
+    const whole = path.startsWith('/') ? path : `${from.replace(/\/$/, '')}/${path}`;
+    /** @type {string[]} */
+    const parts = [];
+    for (const part of whole.split('/')) {
+        if (part === '..') parts.pop();
+        else if (part !== '' && part !== '.') parts.push(part);
+    }
+    return `/${parts.join('/')}`;
+};
+
+/**
+ * Whether a COPY or ADD instruction's words copy a `.npmrc` into the folder the stage runs in,
+ * named as one of its sources, so npm reads it there. A copy of a whole folder does not count,
+ * since a `.dockerignore` may leave the file out, and nor does a copy to another folder.
  *
  * @param {string} rest
+ * @param {string} workdir
  */
-const copiesNpmrc = (rest) => {
-    const words = rest.split(/\s+/).filter((word) => word !== '' && !word.startsWith('--'));
-    return words
-        .slice(0, -1)
-        .some((word) => /(?:^|\/)\.npmrc$/.test(word.replace(/["',[\]]/g, '')));
+const copiesNpmrc = (rest, workdir) => {
+    const words = rest
+        .split(/\s+/)
+        .filter((word) => word !== '' && !word.startsWith('--'))
+        .map((word) => word.replace(/["',[\]]/g, ''))
+        .filter(Boolean);
+    const target = words.at(-1) ?? '';
+    const into = folderAt(workdir, target.replace(/(?:^|\/)\.npmrc$/, '') || '.');
+    return (
+        words.slice(0, -1).some((word) => /(?:^|\/)\.npmrc$/.test(word)) &&
+        into === folderAt(workdir, '.')
+    );
 };
 
 /**
@@ -284,14 +311,20 @@ const stageOf = (rest) => {
 };
 
 /**
- * What a stage has set before a RUN: install scripts off, git and URL dependencies each stopped, and
- * the `.npmrc` copied in, which holds all three.
+ * What a stage has set before a RUN: install scripts off, git and URL dependencies each stopped,
+ * the folder it runs in, and the folder a `.npmrc` that holds all three was copied into, if any.
  *
- * @typedef {{ scripts: boolean, git: boolean, remote: boolean, npmrc: boolean }} Held
+ * @typedef {{ scripts: boolean, git: boolean, remote: boolean, workdir: string, npmrc: string | undefined }} Held
  */
 
-/** A stage that has set nothing, as one built on an image starts. */
-const UNSET = Object.freeze({ scripts: false, git: false, remote: false, npmrc: false });
+/** A stage that has set nothing, as one built on an image starts, in the image's root. */
+const UNSET = Object.freeze({
+    scripts: false,
+    git: false,
+    remote: false,
+    workdir: '/',
+    npmrc: undefined,
+});
 
 /**
  * What a FROM's stage starts with, and the name it is known by: what an earlier stage held when it
@@ -340,7 +373,8 @@ const afterEnv = (held, rest) => {
 
 /**
  * What is wrong with a RUN, given what its stage holds as it runs: install scripts not yet off, and
- * git and URL dependencies not yet stopped, unless the `.npmrc` was copied in.
+ * git and URL dependencies not yet stopped, unless the `.npmrc` was copied into the folder it runs
+ * in.
  *
  * @param {string} where
  * @param {Held} held
@@ -348,7 +382,7 @@ const afterEnv = (held, rest) => {
  * @returns {string[]}
  */
 const runProblems = (where, held, rest) => {
-    if (held.npmrc) return [];
+    if (held.npmrc === held.workdir) return [];
     const command = rest.split('\n')[0]?.trim() ?? '';
     return [
         ...(held.scripts
@@ -368,8 +402,9 @@ const runProblems = (where, held, rest) => {
  * Each RUN of a Dockerfile, ONBUILD RUN among them, that comes before its stage holds npm's three
  * settings, whatever it runs, since a script it calls may run npm: install scripts turned off, and
  * git and URL dependencies stopped, each set with ENV, or the `.npmrc` that holds all three copied
- * in. An image build often copies only a `package.json` and its lockfile before installing, so the
- * repository's `.npmrc` counts only where the stage copies it. ARG does not count, since a build
+ * into the folder the RUN runs in. An image build often copies only a `package.json` and its
+ * lockfile before installing, so the repository's `.npmrc` counts only where the stage copies it.
+ * ARG does not count, since a build
  * argument can be set otherwise when the image is built. A FROM starts a stage with nothing set,
  * unless it builds on an earlier stage, whose settings and files it inherits.
  *
@@ -393,8 +428,10 @@ export function dockerfileProblems(path, text) {
             if (stage !== undefined) stages.set(stage, held);
             ({ held, stage } = entering(rest, stages));
         } else if (keyword === 'ENV') held = afterEnv(held, rest);
-        else if ((keyword === 'COPY' || keyword === 'ADD') && copiesNpmrc(rest))
-            held = { ...held, npmrc: true };
+        else if (keyword === 'WORKDIR')
+            held = { ...held, workdir: folderAt(held.workdir, rest.trim()) };
+        else if ((keyword === 'COPY' || keyword === 'ADD') && copiesNpmrc(rest, held.workdir))
+            held = { ...held, npmrc: held.workdir };
         else if (runs(keyword, rest)) problems.push(...runProblems(`${path}:${line}`, held, rest));
     }
     return problems;
@@ -440,17 +477,17 @@ const FLAG_FALSE = new RegExp(
 const VALUE = `("[^"\\n]*"|'[^'\\n]*'|[^\\s;&|,})\\]\\\\\\x60"']*)`;
 
 /**
- * The separator between a setting's name and its value: a colon or an equals sign, after a quote and
- * a closing bracket where code reads it as a key, such as `env["name"] = value`, and with the rest of
- * a comparison such as `===` passed over, so a test of the value reads the value it tests.
+ * The separator between a setting's name and its value: a colon or an equals sign, after a quote
+ * and a closing bracket where code reads it as a key, such as `env["name"] = value`, and with the
+ * rest of a comparison such as `===` passed over, so a test of the value reads the value it tests.
  */
 const SEPARATOR = `["']?\\]?\\s*[:=]=*\\s*`;
 const SETTING_VALUE = new RegExp(`${SETTING_SOURCE}${SEPARATOR}${VALUE}`, 'gi');
 
 /**
- * The flags and environment settings that let npm fetch dependencies from git or a URL, each given a
- * value, which npm reads in place of the `.npmrc`'s whenever it is anything but none. Each is built
- * from its parts, as the install scripts flag is.
+ * The flags and environment settings that let npm fetch dependencies from git or a URL, each given
+ * a value, which npm reads in place of the `.npmrc`'s whenever it is anything but none. Each is
+ * built from its parts, as the install scripts flag is.
  */
 const FETCH_FLAG_VALUE = new RegExp(
     `${['--allow', '-'].join('')}(?:git|remote)(?:=|\\s+)("[^"]*"|'[^']*'|[^\\s;&|)]*)`,
@@ -530,18 +567,21 @@ const operandAt = (/** @type {readonly string[]} */ words, /** @type {number} */
 };
 
 /**
- * Whether npx, or npm's exec command, by its own options before the tool, may fetch what it runs: the last of
- * the options that say whether it may deciding, and fetching when none is given.
+ * Whether npx, or npm's exec command, by its own options before the tool, may fetch what it runs:
+ * the last of the options that say whether it may deciding, and fetching when none is given. npx
+ * reads `--no-install` as `--no`, and npm's exec command does not, so there it stops nothing.
  *
  * @param {readonly string[]} words
  * @param {number} from
+ * @param {boolean} throughNpx
  */
-const mayFetch = (words, from) => {
+const mayFetch = (words, from, throughNpx) => {
     let fetches = true;
     for (let at = from; at < words.length; at += 1) {
         const word = words[at] ?? '';
         if (word === '--' || !word.startsWith('-')) break;
-        if (word === '--no-install' || word === '--no') fetches = false;
+        if (word === '--no' || word === '--yes=false' || (throughNpx && word === '--no-install'))
+            fetches = false;
         else if (word === '--yes' || word === '-y') fetches = true;
         else if (VALUED.has(word)) at += 1;
     }
@@ -551,8 +591,8 @@ const mayFetch = (words, from) => {
 /**
  * Whether a line runs a command that may fetch a package to run it: npx, or npm's exec command or
  * its alias, whose own options leave it free to fetch, npm's create command, or its init command
- * given an initializer, each
- * read only where it starts a command, so a sentence that names one is passed over.
+ * given an initializer, each read only where it starts a command, so a sentence that names one is
+ * passed over.
  *
  * @param {string} line
  */
@@ -563,11 +603,11 @@ const fetchesToRun = (line) =>
         .some((words) => {
             const at = words.findIndex((word) => !LEAD.test(word));
             const first = words[at] ?? '';
-            if (isTool(first, 'npx')) return mayFetch(words, at + 1);
+            if (isTool(first, 'npx')) return mayFetch(words, at + 1, true);
             if (!isTool(first, 'npm')) return false;
             const sub = operandAt(words, at + 1);
             const subcommand = sub < 0 ? '' : (words[sub] ?? '');
-            if (subcommand === 'exec' || subcommand === 'x') return mayFetch(words, sub + 1);
+            if (subcommand === 'exec' || subcommand === 'x') return mayFetch(words, sub + 1, false);
             if (subcommand === 'create') return true;
             if (subcommand === 'init' || subcommand === 'innit')
                 return operandAt(words, sub + 1) >= 0;
@@ -575,13 +615,40 @@ const fetchesToRun = (line) =>
         });
 const FLAG_OFF = new RegExp(`${FLAG}(?![=\\w-])|${FLAG}=(["']?)true\\1(?![\\w-])`, 'i');
 
+/** The flags that stop an install fetching from git and from a URL, built from their parts. */
+const FETCH_OFF = ['git', 'remote'].map(
+    (kind) =>
+        new RegExp(`${['--allow', '-'].join('')}${kind}(?:=|\\s+)(["']?)none\\1(?![\\w-])`, 'i')
+);
+
+/**
+ * Whether a line runs an install outside the project, by `--prefix` or `-C`, or into npm's global
+ * folder, without the flags that hold what the project's `.npmrc` would: install scripts off, and
+ * git and URL dependencies stopped, by their two flags or by `--offline`, which fetches nothing.
+ * Each command on the line is judged by its own words.
+ *
+ * @param {string} line
+ */
+const installsOutside = (line) =>
+    line
+        .split(/&&|\|\||;|\||&/)
+        .some(
+            (command) =>
+                INSTALL.test(command) &&
+                ELSEWHERE.test(command) &&
+                (!FLAG_OFF.test(command) ||
+                    !(
+                        /\s--offline\b/.test(command) ||
+                        FETCH_OFF.every((flag) => flag.test(command))
+                    ))
+        );
+
 /**
  * What a line does that the settings do not hold, or undefined: turns install scripts back on, with
  * the flag given any value npm reads as false or negated, the environment setting given any value
- * but true, a write of one of the settings to the project's `.npmrc`, or an install pointed at
- * another project with `--prefix` or `-C`, or at npm's global folder, which reads another project's
- * settings rather than this one's, without the flag that turns them off. Lets npm fetch from git or
- * a URL, with a flag or a setting given any value but none. Or fetches a package to run it.
+ * but true, or a write of one of the settings to the project's `.npmrc`. Installs outside the
+ * project without the flags that hold its settings. Lets npm fetch from git or a URL, with a flag
+ * or a setting given any value but none. Or fetches a package to run it.
  *
  * @param {string} line
  * @returns {string | undefined}
@@ -593,19 +660,25 @@ const lineProblem = (line) => {
     const setOn = [...line.matchAll(SETTING_VALUE)].some(
         ([, value = '']) => plain(value) !== 'true'
     );
-    const elsewhere = INSTALL.test(line) && ELSEWHERE.test(line) && !FLAG_OFF.test(line);
-    if (flagOn || setOn || elsewhere || writesProject(line)) return 'turns install scripts back on';
+    if (flagOn || setOn || writesProject(line)) return 'turns install scripts back on';
+    if (installsOutside(line))
+        return 'installs outside the project, where its .npmrc is not read, without the flags that hold its settings';
     const fetchOn = [
         ...line.matchAll(FETCH_FLAG_VALUE),
         ...line.matchAll(FETCH_SETTING_VALUE),
     ].some(([, value = '']) => plain(value) !== 'none');
     if (fetchOn) return 'lets npm fetch dependencies from git or URLs';
-    if (fetchesToRun(line)) return 'may fetch a package to run it, without --no-install';
+    if (fetchesToRun(line))
+        return 'may fetch a package to run it, without --no, or --no-install for npx, to stop it';
     return undefined;
 };
 
 /**
- * Each line of a file that lets npm do what the settings stop, as `lineProblem` reads it.
+ * Each line of a file that lets npm do what the settings stop: one that sets install scripts on, or
+ * git or URL dependencies allowed, by a flag or an `npm_config_` setting, one that writes a setting
+ * to the project's `.npmrc` with npm's config command, an install outside the project without the
+ * flags that hold its settings, and a run of npx, or npm's exec, create or init command, that may
+ * fetch a package to run it.
  *
  * @param {string} path
  * @param {string} text
@@ -628,7 +701,8 @@ const NPM_FLOOR = [11, 14, 0];
 
 /**
  * What is wrong with the npm that runs the check, given its version: older than the first that
- * reads `allow-git` and `allow-remote`, so it would pass over both settings without a word. The
+ * reads `allow-git` and `allow-remote`, a prerelease of it included, so it would pass over both
+ * settings without a word. The
  * floor is held here rather than by `engines.npm`, since Dependabot's npm updater reads that field
  * and may refuse to run on an older npm.
  *
@@ -642,7 +716,11 @@ export function npmFloorProblems(version) {
         .split('.')
         .map(Number);
     const differs = NPM_FLOOR.findIndex((part, index) => (parts[index] ?? 0) !== part);
-    const enough = differs < 0 || (parts[differs] ?? 0) > (NPM_FLOOR[differs] ?? 0);
+    // A prerelease of the floor itself comes before the release, so it may not read the settings.
+    const enough =
+        differs < 0
+            ? !/^[^+]*-/.test(version.trim())
+            : (parts[differs] ?? 0) > (NPM_FLOOR[differs] ?? 0);
     return enough
         ? []
         : [

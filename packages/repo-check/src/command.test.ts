@@ -31,16 +31,23 @@ const OFF = 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n';
  */
 const runIn = (
     files: Record<string, string | null>,
-    { args = [], git = true, npm }: { args?: string[]; git?: boolean; npm?: string } = {}
+    {
+        args = [],
+        git = true,
+        npm = '11.14.0',
+        agent,
+    }: { args?: string[]; git?: boolean; npm?: string; agent?: string } = {}
 ) => {
     const root = mkdtempSync(join(tmpdir(), 'repo-check-'));
+    // A stand-in npm first on the path, which prints the version given, so a test does not hang on
+    // the npm of the machine it runs on. The user agent npm sets for the scripts it runs is left
+    // out unless a test gives one, since the command reads it first.
     const env = isolated();
-    if (npm !== undefined) {
-        // A stand-in npm first on the path, which prints the version given.
-        const bin = mkdtempSync(join(tmpdir(), 'repo-check-npm-'));
-        writeFileSync(join(bin, 'npm'), `#!/bin/sh\necho ${npm}\n`, { mode: 0o755 });
-        env['PATH'] = `${bin}:${env['PATH'] ?? ''}`;
-    }
+    delete env['npm_config_user_agent'];
+    if (agent !== undefined) env['npm_config_user_agent'] = agent;
+    const bin = mkdtempSync(join(tmpdir(), 'repo-check-npm-'));
+    writeFileSync(join(bin, 'npm'), `#!/bin/sh\necho ${npm}\n`, { mode: 0o755 });
+    env['PATH'] = `${bin}:${env['PATH'] ?? ''}`;
     const options = { cwd: root, env, timeout: 10_000 };
     try {
         if (git) execFileSync('git', ['init', '--quiet'], options);
@@ -155,6 +162,15 @@ describe('check-installs', () => {
         expect(old.stderr).toContain('npm 11.13.0 is older than 11.14.0');
         expect(runIn({}, { npm: '11.14.0' }).status).toBe(0);
         expect(runIn({}, { npm: '12.0.0' }).status).toBe(0);
+    });
+
+    it('reads the version of the npm that runs it from the user agent npm sets, before the path', () => {
+        const old = runIn({}, { agent: 'npm/11.13.0 node/v24.22.2 darwin arm64 workspaces/false' });
+        expect(old.status).toBe(1);
+        expect(old.stderr).toContain('npm 11.13.0 is older');
+        expect(
+            runIn({}, { npm: '11.13.0', agent: 'npm/11.19.1 node/v24.22.2 linux x64' }).status
+        ).toBe(0);
     });
 
     it('refuses a workflow that lets npm fetch from git, or runs npx free to fetch', () => {

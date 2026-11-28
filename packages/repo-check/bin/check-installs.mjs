@@ -23,7 +23,16 @@ if (process.argv.length > 2) {
 /** @type {string[]} */
 let failures;
 try {
-    const npm = execFileSync('npm', ['--version'], { encoding: 'utf8' });
+    // npm names itself in the user agent it sets for a script it runs, which is the npm that reads
+    // the settings. Run another way, the npm on the path is asked, through a shell on Windows, where
+    // npm is a script that cannot be run without one.
+    const agent = /(?:^|\s)npm\/(\S+)/.exec(process.env['npm_config_user_agent'] ?? '')?.[1];
+    const npm =
+        agent ??
+        execFileSync('npm', ['--version'], {
+            encoding: 'utf8',
+            shell: process.platform === 'win32',
+        });
     failures = [...npmFloorProblems(npm), ...installProblems(repositoryRoot(process.cwd()))];
 } catch (error) {
     console.error(`check-installs: ${error instanceof Error ? error.message : String(error)}`);

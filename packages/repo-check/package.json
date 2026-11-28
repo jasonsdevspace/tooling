@@ -1,7 +1,7 @@
 {
     "name": "@jasonsdevspace/repo-check",
     "version": "0.1.0",
-    "description": "Fails a build wherever npm could run install scripts or fetch git or URL dependencies: a package root whose .npmrc lacks ignore-scripts=true, allow-git=none or allow-remote=none, a file that turns scripts back on, or an unset Dockerfile stage.",
+    "description": "Fails a build wherever npm could run install scripts or fetch git or URL dependencies: a package root whose .npmrc lacks the settings that stop them, a flag, setting or command that gives one another value, an unset Dockerfile stage, an install outside the project, or a tool fetched to run.",
     "keywords": [
         "npm",
         "install-scripts",
@@ -24,7 +24,7 @@
     "type": "module",
     "sideEffects": false,
     "engines": {
-        "node": ">=24"
+        "node": ">=24.18"
     },
     "bin": {
         "check-installs": "./bin/check-installs.mjs"

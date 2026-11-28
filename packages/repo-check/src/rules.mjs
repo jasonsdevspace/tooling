@@ -702,28 +702,26 @@ const NPM_FLOOR = [11, 14, 0];
 /**
  * What is wrong with the npm that runs the check, given its version: older than the first that
  * reads `allow-git` and `allow-remote`, a prerelease of it included, so it would pass over both
- * settings without a word. The
- * floor is held here rather than by `engines.npm`, since Dependabot's npm updater reads that field
- * and may refuse to run on an older npm.
+ * settings without a word. The floor is held here rather than by `engines.npm`, since Dependabot's
+ * npm updater reads that field and may refuse to run on an older npm.
  *
  * @param {string} version
  * @returns {string[]}
  */
 export function npmFloorProblems(version) {
-    const parts = version
-        .trim()
-        .replace(/[-+].*$/, '')
-        .split('.')
-        .map(Number);
+    const written = version.trim();
+    // The release's own numbers end at the first hyphen, which starts a prerelease, or plus sign,
+    // which starts build details. Found by a plain search, so a long version costs one pass.
+    const cut = [...written].findIndex((char) => char === '-' || char === '+');
+    const release = cut < 0 ? written : written.slice(0, cut);
+    const prerelease = cut >= 0 && written[cut] === '-';
+    const parts = release.split('.').map(Number);
     const differs = NPM_FLOOR.findIndex((part, index) => (parts[index] ?? 0) !== part);
     // A prerelease of the floor itself comes before the release, so it may not read the settings.
-    const enough =
-        differs < 0
-            ? !/^[^+]*-/.test(version.trim())
-            : (parts[differs] ?? 0) > (NPM_FLOOR[differs] ?? 0);
+    const enough = differs < 0 ? !prerelease : (parts[differs] ?? 0) > (NPM_FLOOR[differs] ?? 0);
     return enough
         ? []
         : [
-              `npm ${version.trim()} is older than ${NPM_FLOOR.join('.')}, the first that reads allow-git and allow-remote, so it would pass over both`,
+              `npm ${written} is older than ${NPM_FLOOR.join('.')}, the first that reads allow-git and allow-remote, so it would pass over both`,
           ];
 }

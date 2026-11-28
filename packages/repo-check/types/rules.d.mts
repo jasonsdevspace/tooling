@@ -49,9 +49,8 @@ export function scriptsOnProblems(path: string, text: string): string[];
 /**
  * What is wrong with the npm that runs the check, given its version: older than the first that
  * reads `allow-git` and `allow-remote`, a prerelease of it included, so it would pass over both
- * settings without a word. The
- * floor is held here rather than by `engines.npm`, since Dependabot's npm updater reads that field
- * and may refuse to run on an older npm.
+ * settings without a word. The floor is held here rather than by `engines.npm`, since Dependabot's
+ * npm updater reads that field and may refuse to run on an older npm.
  *
  * @param {string} version
  * @returns {string[]}

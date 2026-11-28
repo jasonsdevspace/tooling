@@ -203,6 +203,28 @@ const reachableFrom = (from: string, names: string[], packages: Record<string, L
     return [...seen];
 };
 
+/**
+ * The first npm that reads both `allow-git` and `allow-remote`, which the repository's `.npmrc`
+ * sets. It is held by a test of the npm that runs the checks, not by `engines.npm` in the root
+ * manifest, since Dependabot's npm updater reads that field and may refuse to run on an older npm,
+ * which would stop version and security updates.
+ */
+const NPM_FLOOR = [11, 14, 0] as const;
+
+/** A version's numbers, with any prerelease or build suffix left off. */
+const versionParts = (version: string): number[] =>
+    version
+        .trim()
+        .replace(/[-+].*$/, '')
+        .split('.')
+        .map(Number);
+
+/** Whether a version is at least the floor, number by number. */
+const atLeast = (version: readonly number[], floor: readonly number[]): boolean => {
+    const differs = floor.findIndex((part, index) => (version[index] ?? 0) !== part);
+    return differs < 0 || (version[differs] ?? 0) > (floor[differs] ?? 0);
+};
+
 describe('the workflows', () => {
     const steps = [...workflows.values()].flatMap(stepsOf);
 
@@ -422,6 +444,15 @@ describe('the workflows', () => {
 
     it('turn install scripts off on every install where npm reads no project .npmrc', () => {
         expect([...workflows.values()].flatMap(outsideInstalls)).toEqual([]);
+    });
+
+    it('run on an npm that reads allow-git and allow-remote', () => {
+        const running = spawnSync('npm', ['--version'], { encoding: 'utf8' }).stdout;
+        expect(atLeast(versionParts(running), NPM_FLOOR), `npm ${running.trim()}`).toBe(true);
+        expect(versionParts('11.19.1-pre.0+build.5')).toEqual([11, 19, 1]);
+        expect(atLeast(versionParts('11.14.0'), NPM_FLOOR)).toBe(true);
+        expect(atLeast(versionParts('11.13.9'), NPM_FLOOR)).toBe(false);
+        expect(atLeast(versionParts('12.0.0'), NPM_FLOOR)).toBe(true);
     });
 
     it('find an install outside the repository that leaves install scripts on', () => {

@@ -23,7 +23,9 @@ updates:
       groups:
           # The lint plugins the config package installs for a repository arrive in a pull request
           # of their own. The package takes them by caret ranges, so a repository's lockfile moves
-          # to a new plugin through its own update, and this one tests the presets against it. React's hooks plugin is not among them, since it is a peer each repository
+          # to a new plugin through its own update, and this one tests the presets against it. A
+          # major comes alone, as the header says, since it also moves the range the package
+          # declares. React's hooks plugin is not among them, since it is a peer each repository
           # with React installs itself, and this repository's copy, for its tests, moves with the
           # rest.
           config-plugins:
@@ -32,6 +34,7 @@ updates:
                   - '@eslint-community/eslint-plugin-eslint-comments'
                   - 'eslint-plugin-simple-import-sort'
                   - 'globals'
+              update-types: [minor, patch]
           # TypeScript and its lint plugin move together. typescript-eslint
           # names the TypeScript versions it supports down to the minor, so
           # Dependabot only offers a TypeScript minor once the plugin accepts it.

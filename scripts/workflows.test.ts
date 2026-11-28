@@ -513,7 +513,7 @@ describe('the workflows', () => {
             );
     });
 
-    it('install the config with its plugins by caret ranges, none of which runs an install script', () => {
+    it('install the config with its plugins by caret ranges, none of which runs an install script at the version this repository locks', () => {
         const manifest: unknown = JSON.parse(
             readFileSync(new URL('../packages/config/package.json', import.meta.url), 'utf8')
         );

@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
+    chmodSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -12,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import { repositoryFiles } from './repository.mjs';
 
@@ -666,5 +668,227 @@ describe('the release workflow', () => {
 
     it('never marks a package Latest by hand, so each release takes the default', () => {
         expect(text).not.toMatch(/--latest/);
+    });
+});
+
+/** The workflow each app repository calls to check a pull request's title and body. */
+const PR_MESSAGE = '.github/workflows/pr-message.yml';
+
+/**
+ * The shell a step runs, read from its `run: |` block with the block's own indent taken off, so a
+ * test can run it as GitHub would.
+ */
+const runOf = (step: string): string => {
+    const lines = step.split('\n');
+    const at = lines.findIndex((line) => /^\s+run: \|\s*$/.test(line));
+    if (at < 0) return '';
+    const block = lines.slice(at + 1);
+    const kept = block.filter((line) => line.trim() !== '');
+    const indent = Math.min(...kept.map((line) => line.length - line.trimStart().length));
+    return block
+        .map((line) => line.slice(indent))
+        .join('\n')
+        .trimEnd();
+};
+
+describe('the shared pull request message workflow', () => {
+    const text = workflows.get(PR_MESSAGE) ?? '';
+    const step = stepsOf(text).find(({ text: lines }) =>
+        lines.includes('check-commit-message.mjs')
+    );
+    const script = runOf(step?.text ?? '');
+    let work = '';
+    let version = '';
+    let tarball = '';
+    let integrity = '';
+    let registry = '';
+
+    beforeAll(() => {
+        work = mkdtempSync(join(tmpdir(), 'pr-message-'));
+        const removeWork = () => rmSync(work, { recursive: true, force: true });
+        try {
+            const manifest: unknown = JSON.parse(
+                readFileSync('packages/prose-check/package.json', 'utf8')
+            );
+            version =
+                typeof manifest === 'object' &&
+                manifest !== null &&
+                'version' in manifest &&
+                typeof manifest.version === 'string'
+                    ? manifest.version
+                    : '';
+            const packed = spawnSync(
+                'npm',
+                ['pack', '--ignore-scripts', '--pack-destination', work, './packages/prose-check'],
+                { encoding: 'utf8' }
+            );
+            if (packed.status !== 0) throw new Error(packed.stderr);
+            tarball = join(work, readdirSync(work).find((name) => name.endsWith('.tgz')) ?? '');
+            integrity = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`;
+            registry = `https://registry.npmjs.org/@jasonsdevspace/prose-check/-/prose-check-${version}.tgz`;
+        } catch (error) {
+            removeWork();
+            throw error;
+        }
+        return removeWork;
+    });
+
+    /** One case of the step: a lockfile entry's fields over the real ones, a title, a body and an author. */
+    interface Case {
+        readonly entry?: Readonly<Record<string, string>> | null;
+        readonly title?: string;
+        readonly body?: string;
+        readonly author?: string;
+    }
+
+    /**
+     * How the step ends for a lockfile entry, a title, a body and an author, run as GitHub runs a
+     * step, with `curl` replaced by one that serves the packed prose check whatever address it is
+     * given. An entry of `null` leaves the prose check out of the lockfile.
+     */
+    const ends = (given: Case = {}) => {
+        const { entry, title, body, author } = {
+            entry: {},
+            title: 'Check each pull request title',
+            body: 'A plain body.',
+            author: 'someone',
+            ...given,
+        };
+        const dir = mkdtempSync(join(work, 'case-'));
+        const bin = join(dir, 'bin');
+        const temp = join(dir, 'temp');
+        mkdirSync(bin);
+        mkdirSync(temp);
+        const packages =
+            entry === null
+                ? {}
+                : {
+                      'node_modules/@jasonsdevspace/prose-check': {
+                          version,
+                          resolved: registry,
+                          integrity,
+                          ...entry,
+                      },
+                  };
+        writeFileSync(join(dir, 'package-lock.json'), JSON.stringify({ packages }));
+        writeFileSync(
+            join(bin, 'curl'),
+            `#!/bin/bash\nwhile [ $# -gt 1 ]; do [ "$1" = --output ] && out=$2; shift; done\ncp "${tarball}" "$out"\n`
+        );
+        chmodSync(join(bin, 'curl'), 0o755);
+        const { status, stdout, stderr } = spawnSync(
+            'bash',
+            ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+            {
+                cwd: dir,
+                encoding: 'utf8',
+                env: {
+                    PATH: `${bin}:${process.env['PATH'] ?? ''}`,
+                    RUNNER_TEMP: temp,
+                    TITLE: title,
+                    BODY: body,
+                    AUTHOR: author,
+                },
+            }
+        );
+        return { status, output: `${stdout}${stderr}` };
+    };
+
+    it('is called by another workflow and by nothing else', () => {
+        expect(text).toMatch(/^on:\n {4}workflow_call:\s*$/m);
+        expect(text).not.toMatch(/^\s+(?:pull_request|pull_request_target|push|workflow_run):/m);
+    });
+
+    it('grants only read access to the repository, and checks out without keeping the token', () => {
+        expect(text).toMatch(/^permissions:\n {4}contents: read\n(?! )/m);
+        expect(text).not.toMatch(/^ {8}permissions:/m);
+        const checkout = stepsOf(text).find(({ text: lines }) =>
+            /uses: actions\/checkout@/.test(lines)
+        );
+        expect(checkout?.text).toMatch(/^\s+persist-credentials: false$/m);
+    });
+
+    it('names its job so a caller named Message reports the check as Message / PR title and body', () => {
+        const jobs = jobsOf(text);
+        expect(jobs.map(({ id }) => id)).toEqual(['check']);
+        expect(jobs[0]?.body).toMatch(/^ {8}name: PR title and body\s*$/m);
+    });
+
+    it('passes the title, body and author into the shell only through env', () => {
+        expect(step?.text).toMatch(/^\s+TITLE: \$\{\{ github\.event\.pull_request\.title \}\}$/m);
+        expect(step?.text).toMatch(/^\s+BODY: \$\{\{ github\.event\.pull_request\.body \}\}$/m);
+        expect(step?.text).toMatch(
+            /^\s+AUTHOR: \$\{\{ github\.event\.pull_request\.user\.login \}\}$/m
+        );
+        expect(script).not.toBe('');
+        expect(script).not.toMatch(/\$\{\{/);
+    });
+
+    it('passes a plain title and body from the tarball the lockfile names, installing nothing', () => {
+        expect(ends().status).toBe(0);
+        expect(text.replace(/^\s*#.*$/gm, '')).not.toMatch(
+            /\bnpx\b|\bnpm (?:exec|x|ci|install|i|add)\b/
+        );
+    });
+
+    it('refuses a title that breaks a prose rule, naming the rule', () => {
+        const refused = ends({ title: `Check each title ${String.fromCodePoint(0x2014)} twice` });
+        expect(refused.status).toBe(1);
+        expect(refused.output).toContain('em dash');
+    });
+
+    it("holds only Dependabot's title to the rules, since its body quotes release notes", () => {
+        expect(
+            ends({
+                author: 'dependabot[bot]',
+                body: `Release notes ${String.fromCodePoint(0x2014)} written elsewhere.`,
+            }).status
+        ).toBe(0);
+    });
+
+    it('stops when called for anything but a pull request, which has no title', () => {
+        const refused = ends({ title: '' });
+        expect(refused.status).toBe(1);
+        expect(refused.output).toContain('only for a pull request');
+    });
+
+    it('refuses a tarball whose hash is not the one the lockfile records', () => {
+        const refused = ends({ entry: { integrity: `${integrity.slice(0, -6)}AAAAA=` } });
+        expect(refused.status).toBe(1);
+        expect(refused.output).toContain("does not match the lockfile's hash");
+    });
+
+    it('refuses a lockfile that records only a sha1 hash', () => {
+        const refused = ends({ entry: { integrity: 'sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=' } });
+        expect(refused.status).toBe(1);
+        expect(refused.output).toContain("does not match the lockfile's hash");
+    });
+
+    it('refuses an address that is not the registry address of the version the lockfile names', () => {
+        for (const resolved of [
+            'https://example.com/prose-check.tgz',
+            'https://registry.example.com/@jasonsdevspace/prose-check/-/prose-check-0.3.0.tgz',
+            `${registry.slice(0, -4)}/../../../../evil/-/evil-1.0.0.tgz`,
+        ]) {
+            const refused = ends({ entry: { resolved } });
+            expect(refused.status, resolved).toBe(1);
+            expect(refused.output, resolved).toContain('outside the npm registry');
+        }
+        const crafted = 'x/../../../evil/-/evil-1.0.0';
+        expect(
+            ends({
+                entry: {
+                    version: crafted,
+                    resolved: `https://registry.npmjs.org/@jasonsdevspace/prose-check/-/prose-check-${crafted}.tgz`,
+                },
+            }).status
+        ).toBe(1);
+    });
+
+    it('stops on a lockfile that names no version of the prose check, or leaves it out', () => {
+        const unnamed = ends({ entry: { version: '' } });
+        expect(unnamed.status).toBe(1);
+        expect(unnamed.output).toContain('names no version of the prose check');
+        expect(ends({ entry: null }).status).not.toBe(0);
     });
 });

@@ -406,7 +406,7 @@ describe('the prose check, given a pull request body or an issue', () => {
         ]);
     });
 
-    it('reads nothing given a path of no kind it scans, so a body needs a path such as body.md', () => {
+    it('finds nothing in text given a path of no kind it scans, so a body is checked only with a path such as body.md', () => {
         expect(proseProblems('One clause; then another.', 'One clause; then another.\n')).toEqual(
             []
         );

@@ -9,8 +9,9 @@
  */
 export function commentOf(raw: string, setting: string): string;
 /**
- * The message git will store: everything above the scissors line, without git's own comment
- * lines, with the comment prefix worked out from the repository's setting as `commentOf` does.
+ * The message git will store: for a message git let the author edit, everything above the
+ * scissors line without git's comment lines, with the comment prefix worked out from the
+ * repository's setting as `commentOf` does, and for any other message, every line.
  *
  * @param {string} raw
  * @param {string} commentChar
@@ -18,9 +19,9 @@ export function commentOf(raw: string, setting: string): string;
  */
 export function storedMessage(raw: string, commentChar: string): string;
 /**
- * The text to check, line for line as the author wrote it: the message with git's comment lines
- * blanked and the diff below the scissors left out, or, for one GitHub writes as it is, such as a
- * pull request's title and body, every line of it.
+ * The text to check, line for line as the author wrote it: the lines git will store, with any
+ * comment lines it strips blanked and the diff below the scissors left out, or, for one GitHub
+ * writes as it is, such as a pull request's title and body, every line of it.
  *
  * @param {string} raw
  * @param {string} commentChar

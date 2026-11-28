@@ -15,7 +15,9 @@ describe('the commit message check', () => {
     it('reads a pull request body as GitHub keeps it, headings included', () => {
         // The tool's name is put together here, as in the messages below.
         const body = `Fix the check\n\n## Notes from ${'Co'}dex`;
-        expect(messageProblems(textToCheck(body, '#', false))).toEqual([]);
+        const edited = `${body}\n# Please enter the commit message for your changes.`;
+        expect(messageProblems(textToCheck(edited, '#', false))).toEqual([]);
+        expect(messageProblems(textToCheck(body, '#', false))).not.toEqual([]);
         expect(messageProblems(textToCheck(body, '#', true))).not.toEqual([]);
     });
 
@@ -97,10 +99,18 @@ describe('the commit message check', () => {
             '+// talk to claude; and more',
         ].join('\n');
         expect(storedMessage(raw, '#')).toBe('Fix the check');
-        expect(storedMessage('Fix\n; a comment in another style', ';')).toBe('Fix');
+        expect(
+            storedMessage('Fix\n; Please enter the commit message for your changes.\n; a note', ';')
+        ).toBe('Fix');
         const auto =
             'Fix\n# a heading the author wrote\n; ------------------------ >8 ------------------------\n+claude; diff';
         expect(storedMessage(auto, '#')).toBe('Fix\n# a heading the author wrote');
+    });
+
+    it('keeps comment lines when git wrote none of its own text, as git stores them', () => {
+        // As a message given with -m, which git does not edit, so it strips no comment lines.
+        expect(storedMessage('Add a file\n\n# A heading', '#')).toBe('Add a file\n\n# A heading');
+        expect(textToCheck('Fix\n; a note', ';', false)).toBe('Fix\n; a note');
     });
 
     it('works out the comment character as git does when it is auto', () => {
@@ -206,14 +216,23 @@ describe('the check-commit-message command', () => {
         expectRefused(ranOn(`Keep the ${'col'}our\n`), 'British spelling');
     });
 
-    it('drops git comment lines, unless told to read the message as it is', () => {
-        expect(ranOn(commented)).toEqual(passed);
-        expectRefused(ranOn(commented, ['--as-is']));
+    it('drops comment lines when git wrote its own text, unless told to read the message as it is', () => {
+        const edited = `${commented}# Please enter the commit message for your changes.\n`;
+        expect(ranOn(edited)).toEqual(passed);
+        expectRefused(ranOn(edited, ['--as-is']));
     });
 
-    it('drops the comment character the repository sets', () => {
-        const message = `Fix the check\n; Notes from ${'Co'}dex\n`;
+    it('refuses a comment line given with -m, which git stores', () => {
+        expectRefused(ranOn(`Add a file\n\n# Written with ${'Clau'}de\n`));
+        expectRefused(ranOn(commented));
+    });
+
+    it('drops the comment character the repository sets, when git wrote its text after it', () => {
+        const message = `Fix the check\n; Notes from ${'Co'}dex\n; Please enter the commit message for your changes.\n`;
         expect(ranOn(message, [], { 'core.commentChar': ';' })).toEqual(passed);
+        expectRefused(
+            ranOn(`Fix the check\n; Notes from ${'Co'}dex\n`, [], { 'core.commentChar': ';' })
+        );
     });
 
     it('drops hash lines under auto when git wrote its text after a hash', () => {
@@ -244,7 +263,7 @@ describe('the check-commit-message command', () => {
     });
 
     it('drops the comment string a newer git sets in place of the character', () => {
-        const message = `Fix the check\n// Notes from ${'Co'}dex\n`;
+        const message = `Fix the check\n// Notes from ${'Co'}dex\n// Please enter the commit message for your changes.\n`;
         expect(ranOn(message, [], { 'core.commentString': '//' })).toEqual(passed);
     });
 

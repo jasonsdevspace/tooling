@@ -164,6 +164,9 @@ them:
 The commit message breaks the British spelling rule on line 3. Describe the change in plain sentences.
 ```
 
+Git strips its comment lines only from a message the author edits, which holds git's own "Please
+enter" line or the scissors line, so only there are they left out. A message given with `-m` keeps
+every line, a line that starts with `#` included, and the command reads it all, as git stores it.
 Git's comment lines start with the character the repository sets in `core.commentChar` or
 `core.commentString`, `#` when unset. With `auto`, the command works it out as git does, from git's
 own "Please enter" line when the message holds one, so a line of the author's that starts with `#`

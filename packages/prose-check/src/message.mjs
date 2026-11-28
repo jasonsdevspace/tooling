@@ -45,11 +45,17 @@ export function commentOf(raw, setting) {
     return AUTO_COMMENTS.find((char) => !lines.some((line) => line.startsWith(char))) ?? '#';
 }
 
+/** Git's line asking for a message, which it writes only into a message the author edits. */
+const ASKS = /^\s*Please enter (?:the|a) commit message/;
+
 /**
- * Each line of a message as written, with git's comment lines blanked rather than dropped, so a
- * line keeps its number, and everything from the scissors line that `git commit -v` adds before
- * the diff left out. The scissors line is found by its shape, whatever comment prefix git wrote on
- * it, and its prefix marks the comment lines in place of the one worked out from the setting.
+ * Each line of a message as git stores it. Git strips its comment lines only from a message it
+ * let the author edit, which holds its own line asking for a message or the scissors line that
+ * `git commit -v` adds before the diff. In such a message, comment lines are blanked rather than
+ * dropped, so a line keeps its number, and everything from the scissors line is left out. The
+ * scissors line is found by its shape, whatever comment prefix git wrote on it, and its prefix
+ * marks the comment lines in place of the one worked out from the setting. A message git did not
+ * edit, such as one given with `-m`, keeps every line, comment lines included, as git keeps them.
  *
  * @param {string} raw
  * @param {string} setting
@@ -60,14 +66,19 @@ const keptLines = (raw, setting) => {
     const scissors = lines.findIndex((line) => /^\S+ -{24} >8 -{24}$/.test(line));
     const comment =
         scissors === -1 ? commentOf(raw, setting) : (lines[scissors]?.split(' ')[0] ?? '#');
+    const edited =
+        scissors !== -1 ||
+        lines.some((line) => line.startsWith(comment) && ASKS.test(line.slice(comment.length)));
+    if (!edited) return lines;
     return (scissors === -1 ? lines : lines.slice(0, scissors)).map((line) =>
         line.startsWith(comment) ? '' : line
     );
 };
 
 /**
- * The message git will store: everything above the scissors line, without git's own comment
- * lines, with the comment prefix worked out from the repository's setting as `commentOf` does.
+ * The message git will store: for a message git let the author edit, everything above the
+ * scissors line without git's comment lines, with the comment prefix worked out from the
+ * repository's setting as `commentOf` does, and for any other message, every line.
  *
  * @param {string} raw
  * @param {string} commentChar
@@ -81,9 +92,9 @@ export function storedMessage(raw, commentChar) {
 }
 
 /**
- * The text to check, line for line as the author wrote it: the message with git's comment lines
- * blanked and the diff below the scissors left out, or, for one GitHub writes as it is, such as a
- * pull request's title and body, every line of it.
+ * The text to check, line for line as the author wrote it: the lines git will store, with any
+ * comment lines it strips blanked and the diff below the scissors left out, or, for one GitHub
+ * writes as it is, such as a pull request's title and body, every line of it.
  *
  * @param {string} raw
  * @param {string} commentChar

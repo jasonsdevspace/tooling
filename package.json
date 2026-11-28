@@ -11,7 +11,7 @@
         "packages/*"
     ],
     "scripts": {
-        "type-check": "tsc --noEmit && tsc -p scripts && tsc -p packages/prose-check && tsc -p packages/repo-check",
+        "type-check": "tsc --noEmit && tsc -p scripts && tsc -p packages/prose-check && tsc -p packages/repo-check && tsc -p packages/config",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
@@ -25,13 +25,9 @@
         "prepare": "husky || true"
     },
     "devDependencies": {
-        "@eslint/js": "10.0.1",
         "@types/node": "24.19.4",
         "eslint": "10.16.0",
-        "eslint-plugin-import-x": "4.18.1",
-        "eslint-plugin-simple-import-sort": "14.0.0",
-        "eslint-plugin-sonarjs": "4.2.3",
-        "globals": "17.14.0",
+        "eslint-plugin-react-hooks": "7.1.1",
         "husky": "9.1.7",
         "lint-staged": "17.6.2",
         "prettier": "3.10.1",
@@ -40,6 +36,7 @@
         "typescript-eslint": "8.74.0",
         "vitest": "5.1.2"
     },
+    "prettier": "@jasonsdevspace/config/prettier",
     "lint-staged": {
         "*.{ts,js,mjs}": [
             "eslint --fix",

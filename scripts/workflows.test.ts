@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -149,6 +157,52 @@ const fetchingLines = (lines: readonly string[]): string[] =>
         )
         .map((line) => line.trim());
 
+/** What the lockfile records for one installed package. */
+type LockEntry = {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    hasInstallScript?: boolean;
+};
+
+/** The peers a package needs installed beside it, the optional ones left out. */
+const requiredPeers = (entry: LockEntry | undefined) =>
+    Object.keys(entry?.peerDependencies ?? {}).filter(
+        (name) => entry?.peerDependenciesMeta?.[name]?.optional !== true
+    );
+
+/**
+ * Every lockfile path installed for `names` as `from` resolves them, and for what those depend
+ * on in turn, required peers included, found as Node finds a package: in the folder's own
+ * node_modules, then each one above.
+ */
+const reachableFrom = (from: string, names: string[], packages: Record<string, LockEntry>) => {
+    const seen = new Set<string>();
+    const visit = (folder: string, name: string) => {
+        let at = folder;
+        for (;;) {
+            const path = at === '' ? `node_modules/${name}` : `${at}/node_modules/${name}`;
+            if (path in packages) {
+                if (seen.has(path)) return;
+                seen.add(path);
+                const entry = packages[path];
+                for (const next of [
+                    ...Object.keys({ ...entry?.dependencies, ...entry?.optionalDependencies }),
+                    ...requiredPeers(entry),
+                ])
+                    visit(path, next);
+                return;
+            }
+            if (at === '') return;
+            const cut = at.lastIndexOf('/node_modules/');
+            at = cut === -1 ? '' : at.slice(0, cut);
+        }
+    };
+    for (const name of names) visit(from, name);
+    return [...seen];
+};
+
 describe('the workflows', () => {
     const steps = [...workflows.values()].flatMap(stepsOf);
 
@@ -163,7 +217,7 @@ describe('the workflows', () => {
     // Every package releases through the one workflow, by its tag's prefix, so the rules a
     // release keeps are written once.
     const RELEASE = '.github/workflows/release.yml';
-    const PACKAGES = ['prose-check', 'repo-check'] as const;
+    const PACKAGES = ['prose-check', 'repo-check', 'config'] as const;
     const releaseJob = (id: string) =>
         jobsOf(workflows.get(RELEASE) ?? '').find((job) => job.id === id)?.body ?? '';
 
@@ -178,7 +232,7 @@ describe('the workflows', () => {
             'bash',
             ['-c', `${block.replace(/^\s+/gm, '')}\nprintf %s "$package"`],
             {
-                env: { TAG: tag, PATH: process.env.PATH ?? '' },
+                env: { TAG: tag, PATH: process.env['PATH'] ?? '' },
                 encoding: 'utf8',
             }
         );
@@ -248,7 +302,7 @@ describe('the workflows', () => {
                 ['--noprofile', '--norc', '-eo', 'pipefail', '-c', block.replace(/^\s+/gm, '')],
                 {
                     cwd: root,
-                    env: { dir: 'package', version, PATH: process.env.PATH ?? '' },
+                    env: { dir: 'package', version, PATH: process.env['PATH'] ?? '' },
                     encoding: 'utf8',
                 }
             );
@@ -277,6 +331,7 @@ describe('the workflows', () => {
         expect(packageFor('prose-check-v0.2.0')).toBe('prose-check');
         expect(packageFor('prose-check-v0.2.0-next.1')).toBe('prose-check');
         expect(packageFor('repo-check-v0.1.0')).toBe('repo-check');
+        expect(packageFor('config-v0.1.0')).toBe('config');
         expect(packageFor('design-kit-v1.0.0')).toBeUndefined();
     });
 
@@ -284,7 +339,7 @@ describe('the workflows', () => {
         const publish = releaseJob('publish');
         expect(publish).toMatch(/name: \$\{\{ needs\.agree\.outputs\.package \}\}-package\s*$/m);
         expect(publish).toMatch(
-            /^ {12}SHA256: \$\{\{ needs\.agree\.outputs\.package == 'prose-check' && needs\.checks\.outputs\.prose-check-sha256 \|\| needs\.agree\.outputs\.package == 'repo-check' && needs\.checks\.outputs\.repo-check-sha256 \|\| '' \}\}$/m
+            /^ {12}SHA256: \$\{\{ needs\.agree\.outputs\.package == 'prose-check' && needs\.checks\.outputs\.prose-check-sha256 \|\| needs\.agree\.outputs\.package == 'repo-check' && needs\.checks\.outputs\.repo-check-sha256 \|\| needs\.agree\.outputs\.package == 'config' && needs\.checks\.outputs\.config-sha256 \|\| '' \}\}$/m
         );
         expect(publish).toMatch(
             /"\$RUNNER_TEMP\/package\/jasonsdevspace-\$PACKAGE-\$VERSION\.tgz"/
@@ -389,14 +444,20 @@ describe('the workflows', () => {
         expect(outsideInstalls(job('            - run: npm ci\n'))).toEqual([]);
     });
 
-    it('publish packages that depend on no other package, so installing one brings in nothing else', () => {
+    // The prose check and the repo check run unpacked with no install, the prose check from the
+    // tarball a repository's message workflow downloads, so each has to work alone. The config
+    // package is installed as a development dependency and brings the lint plugins its presets
+    // name, so it is held to no such rule.
+    const UNPACKED = ['prose-check', 'repo-check'] as const;
+
+    it('publish the packages that run unpacked with no dependency, so installing one brings in nothing else', () => {
         const fields = [
             'dependencies',
             'optionalDependencies',
             'peerDependencies',
             'bundleDependencies',
         ];
-        const declared = PACKAGES.flatMap((name) => {
+        const declared = UNPACKED.flatMap((name) => {
             const manifest: unknown = JSON.parse(
                 readFileSync(new URL(`../packages/${name}/package.json`, import.meta.url), 'utf8')
             );
@@ -408,6 +469,58 @@ describe('the workflows', () => {
                 .map((field) => `${name} ${field}`);
         });
         expect(declared).toEqual([]);
+    });
+
+    it("hand the release each package's checksum from that package's own oldest Node job", () => {
+        const ci = workflows.get('.github/workflows/ci.yml') ?? '';
+        for (const name of PACKAGES)
+            expect(ci, name).toMatch(
+                new RegExp(
+                    `^ {12}${name}-sha256:\\n(?: {16}.*\\n)*? {16}value: \\$\\{\\{ jobs\\.${name}-floor\\.outputs\\.sha256 \\}\\}\\s*$`,
+                    'm'
+                )
+            );
+    });
+
+    it('install the config with its plugins at exact versions, none of which runs an install script', () => {
+        const manifest: unknown = JSON.parse(
+            readFileSync(new URL('../packages/config/package.json', import.meta.url), 'utf8')
+        );
+        const deps: Record<string, string> =
+            typeof manifest === 'object' && manifest !== null && 'dependencies' in manifest
+                ? (manifest.dependencies as Record<string, string>)
+                : {};
+        expect(Object.keys(deps).length).toBeGreaterThan(0);
+        expect(
+            Object.entries(deps)
+                .filter(([, version]) => !/^\d+\.\d+\.\d+$/.test(version))
+                .map(([name]) => name)
+        ).toEqual([]);
+        const lock = JSON.parse(
+            readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
+        ) as { packages: Record<string, LockEntry> };
+        const config = lock.packages['packages/config'];
+        const scripted = reachableFrom(
+            'packages/config',
+            [...Object.keys(deps), ...requiredPeers(config)],
+            lock.packages
+        ).filter((path) => lock.packages[path]?.hasInstallScript === true);
+        expect(scripted).toEqual([]);
+    });
+
+    // The lint leaves the declarations out, since they are written from the JSDoc, so this holds
+    // them to carrying no lint directive at all, which tsc could otherwise copy from a comment.
+    it('write declarations that hold no lint directive', () => {
+        const found = PACKAGES.flatMap((name) => {
+            const folder = new URL(`../packages/${name}/types/`, import.meta.url);
+            if (!existsSync(folder)) return [];
+            return readdirSync(folder)
+                .filter((file) =>
+                    /eslint-(?:disable|enable)/.test(readFileSync(new URL(file, folder), 'utf8'))
+                )
+                .map((file) => `${name}/types/${file}`);
+        });
+        expect(found).toEqual([]);
     });
 
     it('publish packages that run no script of their own when they are installed', () => {

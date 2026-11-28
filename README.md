@@ -9,6 +9,7 @@ a fix reaches every repository by moving one exact pin, and no repository keeps 
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@jasonsdevspace/prose-check`](https://www.npmjs.com/package/@jasonsdevspace/prose-check) | Fails a build on prose that should never reach a reader, in comments, docs and page text. Its [README](packages/prose-check/README.md) lists every rule.                                                      |
 | [`@jasonsdevspace/repo-check`](https://www.npmjs.com/package/@jasonsdevspace/repo-check)   | The house's checks of a repository as a whole. `check-installs` fails a build wherever npm could run install scripts or fetch git and URL dependencies. Its [README](packages/repo-check/README.md) says why. |
+| [`@jasonsdevspace/config`](https://www.npmjs.com/package/@jasonsdevspace/config)           | The house's lint, format and TypeScript settings: ESLint presets, the Prettier config and a strict TypeScript base. Its [README](packages/config/README.md) says how a repository takes each.                 |
 
 Each package is versioned on its own and keeps its own changelog.
 

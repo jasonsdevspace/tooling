@@ -51,8 +51,8 @@ export default defineConfig(
   SonarJS's identical-branch checks, the size budgets a function may not grow past, and the
   mechanical rules `eslint --fix` applies, such as import order. Every callable is a value, written
   as an arrow function. A disable comment has to say why after `--`, and one whose rule no longer
-  fires fails the lint. The builds in `dist` and the coverage reports are left out, beside the paths
-  given.
+  fires fails the lint. A `.cjs` file reads as CommonJS, with `require` and `module.exports`. The
+  builds in `dist` and the coverage reports are left out, beside the paths given.
 - **`typed({ tsconfigRootDir, allowDefaultProject })`** holds TypeScript files to
   typescript-eslint's type-aware set, such as a promise nobody awaits and a condition that is
   always true, read through each file's own tsconfig. `allowDefaultProject` names the files at the

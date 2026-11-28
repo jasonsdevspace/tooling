@@ -107,6 +107,13 @@ export function base({ ignores = [] } = {}) {
                 ...bugCatchers,
                 ...sizeBudgets,
             },
+        },
+        {
+            // A `.cjs` file is CommonJS whatever the package says, so it reads with `require` and
+            // assigns `module.exports`, and the rule that asks for imports instead does not apply.
+            files: ['**/*.cjs'],
+            languageOptions: { sourceType: 'commonjs' },
+            rules: { '@typescript-eslint/no-require-imports': 'off' },
         }
     );
 }

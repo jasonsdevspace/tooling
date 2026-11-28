@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -153,12 +161,21 @@ const fetchingLines = (lines: readonly string[]): string[] =>
 type LockEntry = {
     dependencies?: Record<string, string>;
     optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
     hasInstallScript?: boolean;
 };
 
+/** The peers a package needs installed beside it, the optional ones left out. */
+const requiredPeers = (entry: LockEntry | undefined) =>
+    Object.keys(entry?.peerDependencies ?? {}).filter(
+        (name) => entry?.peerDependenciesMeta?.[name]?.optional !== true
+    );
+
 /**
  * Every lockfile path installed for `names` as `from` resolves them, and for what those depend
- * on in turn, found as Node finds a package: in the folder's own node_modules, then each one above.
+ * on in turn, required peers included, found as Node finds a package: in the folder's own
+ * node_modules, then each one above.
  */
 const reachableFrom = (from: string, names: string[], packages: Record<string, LockEntry>) => {
     const seen = new Set<string>();
@@ -170,10 +187,10 @@ const reachableFrom = (from: string, names: string[], packages: Record<string, L
                 if (seen.has(path)) return;
                 seen.add(path);
                 const entry = packages[path];
-                for (const next of Object.keys({
-                    ...entry?.dependencies,
-                    ...entry?.optionalDependencies,
-                }))
+                for (const next of [
+                    ...Object.keys({ ...entry?.dependencies, ...entry?.optionalDependencies }),
+                    ...requiredPeers(entry),
+                ])
                     visit(path, next);
                 return;
             }
@@ -482,10 +499,28 @@ describe('the workflows', () => {
         const lock = JSON.parse(
             readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
         ) as { packages: Record<string, LockEntry> };
-        const scripted = reachableFrom('packages/config', Object.keys(deps), lock.packages).filter(
-            (path) => lock.packages[path]?.hasInstallScript === true
-        );
+        const config = lock.packages['packages/config'];
+        const scripted = reachableFrom(
+            'packages/config',
+            [...Object.keys(deps), ...requiredPeers(config)],
+            lock.packages
+        ).filter((path) => lock.packages[path]?.hasInstallScript === true);
         expect(scripted).toEqual([]);
+    });
+
+    // The lint leaves the declarations out, since they are written from the JSDoc, so this holds
+    // them to carrying no lint directive at all, which tsc could otherwise copy from a comment.
+    it('write declarations that hold no lint directive', () => {
+        const found = PACKAGES.flatMap((name) => {
+            const folder = new URL(`../packages/${name}/types/`, import.meta.url);
+            if (!existsSync(folder)) return [];
+            return readdirSync(folder)
+                .filter((file) =>
+                    /eslint-(?:disable|enable)/.test(readFileSync(new URL(file, folder), 'utf8'))
+                )
+                .map((file) => `${name}/types/${file}`);
+        });
+        expect(found).toEqual([]);
     });
 
     it('publish packages that run no script of their own when they are installed', () => {

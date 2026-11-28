@@ -474,6 +474,7 @@ jobs:
                   printf '{ "extends": "@jasonsdevspace/config/tsconfig.json", "compilerOptions": { "noEmit": true }, "include": ["src"] }\n' > tsconfig.json
                   mkdir src
                   printf "export const same = (a: number, b: number): boolean => a === b;\n" > src/same.ts
+                  printf "const useCount = (): number => 1;\n\nexport const View = (): null => {\n    useCount();\n    return null;\n};\n" > src/view.tsx
                   ./node_modules/.bin/prettier --write . > /dev/null
                   # Runs a command that should refuse, and fails unless it exits with the status given
                   # and names what it refused, so a crash or a missing config is never a refusal.
@@ -513,6 +514,10 @@ jobs:
                   printf "const xs: number[] = [];\nexport const first: number = xs[0];\n" > src/same.ts
                   refuses 2 TS2322 ./node_modules/.bin/tsc -p .
                   printf "export const same = (a: number, b: number): boolean => a === b;\n" > src/same.ts
+                  cp src/view.tsx kept.tsx
+                  printf "const useCount = (): number => 1;\n\nexport const View = ({ open }: { open: boolean }): null => {\n    if (open) {\n        useCount();\n    }\n    return null;\n};\n" > src/view.tsx
+                  refuses 1 rules-of-hooks ./node_modules/.bin/eslint .
+                  mv kept.tsx src/view.tsx
 
             # As Node and as a bundler resolve the types, with the package's own declarations
             # checked whole, so one that a setting cannot find fails here, not in a repository

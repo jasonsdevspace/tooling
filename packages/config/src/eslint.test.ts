@@ -97,6 +97,11 @@ describe('the presets', () => {
             });
     });
 
+    it('read a CommonJS file as CommonJS, with require and module.exports', async () => {
+        const text = "const x = require('x');\n\nmodule.exports = x;\n";
+        expect(await fired(base(), 'common.cjs', text)).toEqual([]);
+    });
+
     it('fail a disable comment that suppresses nothing', async () => {
         const stale = '// eslint-disable-next-line eqeqeq -- once needed\nexport const one = 1;\n';
         expect(await fired(base(), 'stale.js', stale)).toEqual([{ ruleId: null, severity: 2 }]);

@@ -307,15 +307,15 @@ jobs:
                   npm install --engine-strict --ignore-scripts --save-dev "$RUNNER_TEMP"/jasonsdevspace-repo-check-*.tgz
                   printf 'node_modules/\n' > .gitignore
                   printf 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n' > .npmrc
-                  printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
+                  printf 'FROM node\nCOPY .npmrc package.json ./\nRUN npm ci\n' > Dockerfile
 
             - name: Pass a repository that turns install scripts off
               working-directory: ${{ runner.temp }}/consumer
               run: ./node_modules/.bin/check-installs
 
             # Each refused with status 1, naming the file and the rule it breaks, so a crash is not
-            # taken for a refusal. The flag that turns scripts back on is written from its parts, so
-            # this file holds it nowhere whole.
+            # taken for a refusal. The flag that turns scripts back on, and the tool that fetches,
+            # are written from their parts, so this file holds neither whole.
             - name: Refuse each rule broken
               working-directory: ${{ runner.temp }}/consumer
               run: |
@@ -334,8 +334,13 @@ jobs:
                   refuses '^\.npmrc' 'sets allow-git=none'
                   mv kept.npmrc .npmrc
                   printf 'FROM node\nRUN npm ci\n' > Dockerfile
-                  refuses 'Dockerfile:2' 'runs before npm_config_ignore_scripts=true is set'
+                  refuses 'Dockerfile:2' 'runs before its stage sets npm_config_ignore_scripts=true'
                   printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
+                  refuses 'Dockerfile:3' 'stops git and URL dependencies'
+                  printf 'FROM node\nCOPY .npmrc package.json ./\nRUN npm ci\n' > Dockerfile
+                  printf 'steps:\n    - run: %s%s some-tool\n' np x > tool.yml
+                  refuses '^tool.yml:2' 'may fetch a package to run it'
+                  rm tool.yml
                   printf '{ "scripts": { "setup": "npm ci %s%s" } }\n' --ignore-scripts =false > package.json
                   refuses '^package.json:1' 'turns install scripts back on'
                   printf '{}\n' > package.json

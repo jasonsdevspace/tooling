@@ -1,11 +1,31 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { dockerfileProblems, npmrcProblems, packageRootsOf, scriptsOnProblems } from './rules.mjs';
+import {
+    dockerfileProblems,
+    npmFloorProblems,
+    npmrcProblems,
+    packageRootsOf,
+    scriptsOnProblems,
+} from './rules.mjs';
 
-/** The lines of a Dockerfile that run npm before its stage turns install scripts off. */
-const lines = (text: string) =>
-    dockerfileProblems('Dockerfile', text).map((problem) => /^Dockerfile:(\d+)/.exec(problem)?.[1]);
+/** The line each problem of a Dockerfile names, from the problems that match a pattern. */
+const linesOf = (text: string, kind: RegExp) => [
+    ...new Set(
+        dockerfileProblems('Dockerfile', text)
+            .filter((problem) => kind.test(problem))
+            .map((problem) => /^Dockerfile:(\d+)/.exec(problem)?.[1])
+    ),
+];
+
+/** The lines of a Dockerfile that run before their stage turns install scripts off. */
+const lines = (text: string) => linesOf(text, /ignore.scripts/i);
+
+/** The lines of a Dockerfile that run before their stage stops git and URL dependencies. */
+const fetchLines = (text: string) => linesOf(text, /git and URL/);
+
+/** The lines of a Dockerfile that break either rule. */
+const allLines = (text: string) => linesOf(text, /./);
 
 describe('a Dockerfile', () => {
     it('passes a stage that turns install scripts off before it runs npm', () => {
@@ -223,9 +243,9 @@ describe('the final review', () => {
         ).toHaveLength(1);
         expect(scriptsOnProblems('ci.yml', 'run: npm ci -C ../other\n')).toHaveLength(1);
         expect(scriptsOnProblems('ci.yml', 'run: npm install --prefix=/opt/app\n')).toHaveLength(1);
-        expect(scriptsOnProblems('ci.yml', `run: npm --prefix /tmp/x install ${off}\n`)).toEqual(
-            []
-        );
+        expect(
+            scriptsOnProblems('ci.yml', `run: npm --prefix /tmp/x install ${off} --offline\n`)
+        ).toEqual([]);
         expect(scriptsOnProblems('ci.yml', 'run: npm --prefix demo run build\n')).toEqual([]);
     });
 
@@ -268,5 +288,184 @@ describe('nested workspaces', () => {
                 'packages/a/sub/x/package.json': '{}',
             })
         ).toEqual(['', 'packages/a']);
+    });
+});
+
+describe('the fetch settings outside a .npmrc', () => {
+    // Each refused word is built from parts, so this file holds none of them whole.
+    const git = ['--allow', '-git'].join('');
+    const remote = ['--allow', '-remote'].join('');
+    const gitSetting = ['npm_config', '_allow', '_git'].join('');
+    const remoteSetting = ['npm_config', '_allow', '_remote'].join('');
+    const refused = (path: string, text: string) => scriptsOnProblems(path, text).length;
+
+    it('refuses a flag that lets npm fetch from git or a URL, given any value but none', () => {
+        for (const flag of [git, remote]) {
+            expect(refused('ci.yml', `run: npm ci ${flag}=all\n`), flag).toBe(1);
+            expect(refused('ci.yml', `run: npm ci ${flag} root\n`), flag).toBe(1);
+            expect(refused('ci.yml', `run: npm ci ${flag}="all"\n`), flag).toBe(1);
+            expect(refused('ci.yml', `run: npm ci ${flag}=none\n`), flag).toBe(0);
+            expect(refused('ci.yml', `run: npm ci ${flag} none\n`), flag).toBe(0);
+        }
+    });
+
+    it('refuses the settings given any value but none in an env block, a Dockerfile or a script', () => {
+        expect(refused('.github/workflows/ci.yml', `env:\n    ${gitSetting}: all\n`)).toBe(1);
+        expect(
+            refused(
+                '.github/workflows/ci.yml',
+                `env:\n    ${remoteSetting.toUpperCase()}: 'root'\n`
+            )
+        ).toBe(1);
+        expect(refused('Dockerfile', `ENV ${gitSetting}=all\n`)).toBe(1);
+        expect(
+            refused('package.json', `{ "scripts": { "a": "${remoteSetting}=all npm ci" } }\n`)
+        ).toBe(1);
+        expect(refused('Dockerfile', `ENV ${gitSetting}=none ${remoteSetting}="none"\n`)).toBe(0);
+    });
+});
+
+describe('a Dockerfile stage and the fetch settings', () => {
+    const all =
+        'ENV npm_config_ignore_scripts=true npm_config_allow_git=none npm_config_allow_remote=none\n';
+
+    it('passes a stage that sets all three settings with ENV, or copies the .npmrc, before it runs', () => {
+        expect(allLines(`FROM node\n${all}RUN npm ci\n`)).toEqual([]);
+        expect(
+            allLines('FROM node\nCOPY package.json package-lock.json .npmrc ./\nRUN npm ci\n')
+        ).toEqual([]);
+        expect(allLines(`FROM node AS base\n${all}FROM base\nRUN npm ci\n`)).toEqual([]);
+    });
+
+    it('refuses a stage that turns install scripts off but leaves the fetch settings unset', () => {
+        expect(fetchLines('FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n')).toEqual([
+            '3',
+        ]);
+        expect(
+            fetchLines(
+                'FROM node\nENV npm_config_ignore_scripts=true npm_config_allow_git=all npm_config_allow_remote=none\nRUN npm ci\n'
+            )
+        ).toEqual(['3']);
+        expect(allLines('FROM node\nCOPY . .\nRUN npm ci\n')).toEqual(['3']);
+    });
+});
+
+describe('install scripts turned back on from code', () => {
+    // Each refused word is built from parts, so this file holds none of them whole.
+    const named = ['npm_config', '_ignore', '_scripts'].join('');
+
+    it('reads a quote and a closing bracket before the separator', () => {
+        expect(scriptsOnProblems('set.mjs', `process.env["${named}"] = "false";\n`)).toHaveLength(
+            1
+        );
+        expect(scriptsOnProblems('set.py', `os.environ['${named}'] = 'false'\n`)).toHaveLength(1);
+        expect(scriptsOnProblems('set.mjs', `process.env.${named} = 'false';\n`)).toHaveLength(1);
+        expect(scriptsOnProblems('set.mjs', `process.env["${named}"] = "true";\n`)).toEqual([]);
+        expect(
+            scriptsOnProblems('set.mjs', `if (process.env["${named}"] === "true") run();\n`)
+        ).toEqual([]);
+    });
+});
+
+describe('npm config writing a project setting', () => {
+    const at = (line: string) => scriptsOnProblems('ci.yml', `run: ${line}\n`).length;
+
+    it('refuses a write of any of the three settings to the project file', () => {
+        expect(at('npm config set ignore-scripts false --location=project')).toBe(1);
+        expect(at('npm config set allow-git=all -L project')).toBe(1);
+        expect(at('npm config delete allow-remote --location project')).toBe(1);
+        expect(at('npm config edit --location=project')).toBe(1);
+    });
+
+    it('passes a write elsewhere, and a project write of another setting', () => {
+        expect(at('npm config set ignore-scripts false')).toBe(0);
+        expect(at('npm config set fund false --location=project')).toBe(0);
+        expect(at('npm config get ignore-scripts')).toBe(0);
+    });
+});
+
+describe('the installs no project setting reaches', () => {
+    // Each refused word is built from parts, so this file holds none of them whole.
+    const off = ['--ignore', '-scripts'].join('');
+    const at = (line: string) => scriptsOnProblems('ci.yml', `run: ${line}\n`).length;
+
+    it('refuses a global install that leaves install scripts on', () => {
+        expect(at('npm install -g npm@11.14.0')).toBe(1);
+        expect(at('npm i --global left-pad')).toBe(1);
+        expect(at('npm install --location=global left-pad')).toBe(1);
+        expect(at(`npm install -g --offline ${off} "$tarball"`)).toBe(0);
+        expect(at('npm ls -g')).toBe(0);
+        expect(at('npm ci && git log -g')).toBe(0);
+    });
+
+    it('refuses npx, npm exec and npm x unless they are told not to fetch', () => {
+        expect(at('npx playwright install')).toBe(1);
+        expect(at('npm exec -- tsc')).toBe(1);
+        expect(at('npm x tsc')).toBe(1);
+        expect(at('npx --yes tsc')).toBe(1);
+        expect(at('npx --no-install --yes tsc')).toBe(1);
+        expect(at('npx --no-install tsc')).toBe(0);
+        expect(at('npm exec --no -- tsc')).toBe(0);
+        expect(at('npm exec --yes=false -- tsc')).toBe(0);
+
+        expect(at('npx --no tsc')).toBe(0);
+        expect(at('echo done && npx --no-install tsc')).toBe(0);
+    });
+
+    it('refuses npm create and npm init given an initializer, which always fetch one', () => {
+        expect(at('npm create vite')).toBe(1);
+        expect(at('npm init vite')).toBe(1);
+        expect(at('npm init -y')).toBe(0);
+    });
+
+    it('reads only commands, not words in a sentence', () => {
+        expect(
+            scriptsOnProblems('x.mjs', ' * a run of npx tools, or the npm exec command\n')
+        ).toEqual([]);
+    });
+});
+
+describe('the review of the first round', () => {
+    // Each refused word is built from parts, so this file holds none of them whole.
+    const off = ['--ignore', '-scripts'].join('');
+    const fetchOff = ['--allow', '-git=none ', '--allow', '-remote=none'].join('');
+    const at = (line: string) => scriptsOnProblems('ci.yml', `run: ${line}\n`).length;
+
+    it("refuses npm's exec command given --no-install, which it does not read as --no", () => {
+        expect(at('npm exec --no-install -- tsc')).toBe(1);
+        expect(at('npm x --no-install tsc')).toBe(1);
+    });
+
+    it('refuses an install outside the project that turns install scripts off but may still fetch', () => {
+        expect(at(`npm install -g ${off} github:someone/tool`)).toBe(1);
+        expect(at(`npm ci --prefix other ${off}`)).toBe(1);
+        expect(at(`npm install -g ${off} ${fetchOff} left-pad`)).toBe(0);
+        expect(at(`npm install -g --offline ${off} "$tarball"`)).toBe(0);
+    });
+
+    it('counts a copied .npmrc only in the folder the stage runs in', () => {
+        expect(allLines('FROM node\nCOPY .npmrc /root/backup/\nRUN npm ci\n')).toEqual(['3']);
+        expect(
+            allLines('FROM node\nWORKDIR /app\nCOPY .npmrc package.json ./\nRUN npm ci\n')
+        ).toEqual([]);
+        expect(allLines('FROM node\nWORKDIR /app\nCOPY [".npmrc", "/app/"]\nRUN npm ci\n')).toEqual(
+            []
+        );
+        expect(
+            allLines('FROM node\nWORKDIR /app\nCOPY .npmrc ./\nWORKDIR /srv\nRUN npm ci\n')
+        ).toEqual(['5']);
+    });
+});
+
+describe('the npm floor', () => {
+    it('refuses an npm older than the first that reads allow-git and allow-remote', () => {
+        expect(npmFloorProblems('11.13.9')).toHaveLength(1);
+        expect(npmFloorProblems('10.9.2\n')).toHaveLength(1);
+        expect(npmFloorProblems('11.14.0')).toEqual([]);
+        expect(npmFloorProblems('11.14.0-pre.0')).toHaveLength(1);
+        expect(npmFloorProblems('11.14.1-pre.0')).toEqual([]);
+
+        expect(npmFloorProblems('11.19.1-pre.0+build.5')).toEqual([]);
+        expect(npmFloorProblems('12.0.0')).toEqual([]);
     });
 });

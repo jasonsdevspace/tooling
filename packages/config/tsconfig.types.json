@@ -8,8 +8,7 @@
         "emitDeclarationOnly": true,
         "stripInternal": true,
         "rootDir": "src",
-        "outDir": "types",
-        "skipLibCheck": true
+        "outDir": "types"
     },
-    "include": ["src/*.mjs"]
+    "include": ["src/*.mjs", "src/type-fest.d.ts"]
 }

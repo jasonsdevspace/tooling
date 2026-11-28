@@ -149,6 +149,43 @@ const fetchingLines = (lines: readonly string[]): string[] =>
         )
         .map((line) => line.trim());
 
+/** What the lockfile records for one installed package. */
+type LockEntry = {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    hasInstallScript?: boolean;
+};
+
+/**
+ * Every lockfile path installed for `names` as `from` resolves them, and for what those depend
+ * on in turn, found as Node finds a package: in the folder's own node_modules, then each one above.
+ */
+const reachableFrom = (from: string, names: string[], packages: Record<string, LockEntry>) => {
+    const seen = new Set<string>();
+    const visit = (folder: string, name: string) => {
+        let at = folder;
+        for (;;) {
+            const path = at === '' ? `node_modules/${name}` : `${at}/node_modules/${name}`;
+            if (path in packages) {
+                if (seen.has(path)) return;
+                seen.add(path);
+                const entry = packages[path];
+                for (const next of Object.keys({
+                    ...entry?.dependencies,
+                    ...entry?.optionalDependencies,
+                }))
+                    visit(path, next);
+                return;
+            }
+            if (at === '') return;
+            const cut = at.lastIndexOf('/node_modules/');
+            at = cut === -1 ? '' : at.slice(0, cut);
+        }
+    };
+    for (const name of names) visit(from, name);
+    return [...seen];
+};
+
 describe('the workflows', () => {
     const steps = [...workflows.values()].flatMap(stepsOf);
 
@@ -415,6 +452,40 @@ describe('the workflows', () => {
                 .map((field) => `${name} ${field}`);
         });
         expect(declared).toEqual([]);
+    });
+
+    it("hand the release each package's checksum from that package's own oldest Node job", () => {
+        const ci = workflows.get('.github/workflows/ci.yml') ?? '';
+        for (const name of PACKAGES)
+            expect(ci, name).toMatch(
+                new RegExp(
+                    `^ {12}${name}-sha256:\\n(?: {16}.*\\n)*? {16}value: \\$\\{\\{ jobs\\.${name}-floor\\.outputs\\.sha256 \\}\\}\\s*$`,
+                    'm'
+                )
+            );
+    });
+
+    it('install the config with its plugins at exact versions, none of which runs an install script', () => {
+        const manifest: unknown = JSON.parse(
+            readFileSync(new URL('../packages/config/package.json', import.meta.url), 'utf8')
+        );
+        const deps: Record<string, string> =
+            typeof manifest === 'object' && manifest !== null && 'dependencies' in manifest
+                ? (manifest.dependencies as Record<string, string>)
+                : {};
+        expect(Object.keys(deps).length).toBeGreaterThan(0);
+        expect(
+            Object.entries(deps)
+                .filter(([, version]) => !/^\d+\.\d+\.\d+$/.test(version))
+                .map(([name]) => name)
+        ).toEqual([]);
+        const lock = JSON.parse(
+            readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
+        ) as { packages: Record<string, LockEntry> };
+        const scripted = reachableFrom('packages/config', Object.keys(deps), lock.packages).filter(
+            (path) => lock.packages[path]?.hasInstallScript === true
+        );
+        expect(scripted).toEqual([]);
     });
 
     it('publish packages that run no script of their own when they are installed', () => {

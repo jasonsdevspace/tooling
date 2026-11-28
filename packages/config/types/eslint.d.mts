@@ -25,16 +25,6 @@ export function typed({ tsconfigRootDir, allowDefaultProject }: {
     allowDefaultProject?: string[];
 }): import("eslint").Linter.Config[];
 /**
- * React's rules of hooks, every one the plugin recommends raised to an error with its options
- * kept, and the browser's globals, for the files that render in a browser.
- *
- * @param {{ files: string[] }} options The files that hold components and hooks.
- * @returns {import('eslint').Linter.Config[]}
- */
-export function react({ files }: {
-    files: string[];
-}): import("eslint").Linter.Config[];
-/**
  * The one rule a test may break: a fixture builder takes a record's fields in order, so a table of
  * fixtures reads as one row per line, which an object of named fields would spread over several.
  *

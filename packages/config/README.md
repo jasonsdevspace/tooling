@@ -14,14 +14,16 @@ moves its pin, rather than in the one copy it was edited in.
 ## Installing
 
 ```sh
-npm install --save-dev --save-exact @jasonsdevspace/config eslint typescript-eslint typescript prettier
+npm install --save-dev --save-exact @jasonsdevspace/config eslint typescript-eslint typescript@~6.0.0 prettier
 ```
 
 The package brings the lint plugins its presets name, at the versions it was tested with, so a
 plugin update reaches a repository through a release of this package. ESLint, typescript-eslint,
-TypeScript and Prettier stay the repository's own, since they are the tools it runs and
-typescript-eslint names the TypeScript versions it supports, so the two move together in the
-repository's own dependency updates.
+TypeScript and Prettier stay the repository's own, since they are the tools it runs.
+typescript-eslint names the TypeScript versions it supports, so the TypeScript installed is one in
+its range, the 6.0 line in the line above, and the two move together in the repository's own
+dependency updates. A repository that holds its own copy of a plugin the package brings removes it,
+since ESLint refuses one plugin defined twice.
 
 ## The ESLint presets
 
@@ -29,13 +31,12 @@ Each preset is a function that returns flat config objects, which a repository s
 `eslint.config.js` and follows with its own blocks:
 
 ```js
-import { base, react, tests, typed } from '@jasonsdevspace/config/eslint';
+import { base, tests, typed } from '@jasonsdevspace/config/eslint';
 import { defineConfig } from 'eslint/config';
 
 export default defineConfig(
     ...base({ ignores: ['packages/engine/smoke/types.ts'] }),
     ...typed({ tsconfigRootDir: import.meta.dirname, allowDefaultProject: ['vitest.config.ts'] }),
-    ...react({ files: ['apps/web/**/*.{ts,tsx}'] }),
     ...tests(),
     {
         // This repository's own rules, such as the imports a folder that runs in a browser may not
@@ -44,7 +45,8 @@ export default defineConfig(
 );
 ```
 
-- **`base({ ignores })`** holds any code, JavaScript and TypeScript, to ESLint's and
+- **`base({ ignores })`** holds every kind of JavaScript and TypeScript file, CommonJS and module
+  files and markup among them, to ESLint's and
   typescript-eslint's recommended sets, the rules that catch real mistakes, such as `eqeqeq` and
   SonarJS's identical-branch checks, the size budgets a function may not grow past, and the
   mechanical rules `eslint --fix` applies, such as import order. Every callable is a value, written
@@ -55,10 +57,30 @@ export default defineConfig(
   typescript-eslint's type-aware set, such as a promise nobody awaits and a condition that is
   always true, read through each file's own tsconfig. `allowDefaultProject` names the files at the
   root that no tsconfig includes.
-- **`react({ files })`** holds the files given to React's rules of hooks, every one the plugin
-  recommends raised to an error, with the browser's globals.
 - **`tests({ files })`** turns off `max-params` in the test files, every `*.test.*` file unless
   named, so a fixture builder can take a record's fields in order, and turns off nothing else.
+
+## React
+
+React's rules of hooks live in a preset of their own, so a repository without React installs no
+plugin for them. A repository with React installs the plugin, an optional peer of this package, and
+adds the preset:
+
+```sh
+npm install --save-dev --save-exact eslint-plugin-react-hooks
+```
+
+```js
+import { react } from '@jasonsdevspace/config/react';
+
+// Inside defineConfig, after the presets above.
+...react({ files: ['apps/web/**/*.{ts,tsx}'] }),
+```
+
+**`react({ files })`** holds the files given to React's rules of hooks, every one the plugin
+recommends raised to an error, with the browser's globals and markup parsed in JavaScript files too.
+
+## Every rule an error
 
 Every rule in every preset is an error, since a warning that does not fail the build is a rule
 nobody follows. A repository keeps for itself what names its own folders: which ones run in a
@@ -97,9 +119,15 @@ rather than reaching a repository that installs it. A tsconfig that compiles a d
 declarations are broken, and cannot be fixed from here, turns `skipLibCheck` back on for itself
 alone.
 
-## Versions and license
+## Versions and licenses
 
 The package is versioned on its own. Until 1.0.0, a minor version can fail a build that passed
 before, with a rule that asks more or a new one, and a patch never does, so read the changelog
-before moving to a minor version. The package is MIT licensed, and the terms are in
-[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/config/LICENSE).
+before moving to a minor version.
+
+The package is MIT licensed, and the terms are in
+[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/config/LICENSE). Among the
+plugins it installs, SonarJS's ESLint plugin is under the GNU Lesser General Public License, version
+3 only. The package declares it as a dependency and npm installs it unchanged from its own published
+tarball, so none of its code is copied into or bundled with this package. Every other plugin it
+installs is MIT licensed.

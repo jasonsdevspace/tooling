@@ -6,10 +6,13 @@ name: Release
 # written once. A new package needs five things here and in CI: its tag pattern under the tags
 # below, a line in the case that names its package, a branch in the publish job's checksum
 # expression, a line in the release notes' case that names it, and an oldest Node job in CI that
-# packs it and reports its checksum as an output. The tag has to name a commit on main, match the
-# version in its package's package.json, and have an entry in its changelog with no Unreleased entry
-# left, and the package's changes folder may hold nothing but the README, not even a link, or
-# nothing is released. Every check CI runs, runs first.
+# packs it and reports its checksum as an output. It also needs four settings outside the
+# repository's files: a tag rule for it in the npm environment, its tag in the release tags ruleset,
+# its oldest Node job as a required check, and a trusted publisher on npm, registered once its name
+# exists, after a bootstrap version staged by hand, as the contributing guide says. The tag has to
+# name a commit on main, match the version in its package's package.json, and have an entry in its
+# changelog with no Unreleased entry left, and the package's changes folder may hold nothing but the
+# README, not even a link, or nothing is released. Every check CI runs, runs first.
 #
 # The publish uses npm's trusted publishing: the workflow proves who it is with an OpenID Connect
 # token, so no npm token is stored anywhere, and each version carries provenance that links it to
@@ -248,7 +251,7 @@ jobs:
                   case "$PACKAGE" in
                       prose-check) what="The prose check" ;;
                       repo-check) what="The repo check" ;;
-                      config) what="The config" ;;
+                      config) what="The config package" ;;
                       *) what="The package" ;;
                   esac
                   install="npm install --save-dev --save-exact $name@$VERSION"

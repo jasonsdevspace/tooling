@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { ESLint, type Linter } from 'eslint';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { base, react, tests, typed } from './eslint.mjs';
+import { base, tests, typed } from './eslint.mjs';
 import prettier from './prettier.mjs';
+import { react } from './react.mjs';
 
 /** A project of its own, so the type-aware rules read a tsconfig that holds only the sample. */
 const project = mkdtempSync(join(tmpdir(), 'config-'));
@@ -14,7 +15,7 @@ writeFileSync(
     join(project, 'tsconfig.json'),
     JSON.stringify({
         compilerOptions: { strict: true, target: 'ES2023', module: 'ESNext', noEmit: true },
-        include: ['*.ts', '*.tsx'],
+        include: ['*.ts', '*.tsx', '*.mts', '*.cts'],
     })
 );
 afterAll(() => {
@@ -25,7 +26,7 @@ afterAll(() => {
 const all: Linter.Config[] = [
     ...base(),
     ...typed({ tsconfigRootDir: project }),
-    ...react({ files: ['**/*.tsx'] }),
+    ...react({ files: ['**/*.{tsx,jsx}'] }),
     ...tests(),
 ];
 
@@ -46,7 +47,19 @@ const warns = (setting: unknown) => {
 describe('the presets', () => {
     it('set no rule to a warning, for any kind of file', async () => {
         const eslint = new ESLint({ cwd: project, overrideConfigFile: true, overrideConfig: all });
-        for (const name of ['a.js', 'a.mjs', 'a.ts', 'a.tsx', 'a.test.ts', 'a.test.tsx']) {
+        for (const name of [
+            'a.js',
+            'a.mjs',
+            'a.cjs',
+            'a.jsx',
+            'a.ts',
+            'a.mts',
+            'a.cts',
+            'a.tsx',
+            'a.test.ts',
+            'a.test.tsx',
+            'a.test.cjs',
+        ]) {
             const resolved = (await eslint.calculateConfigForFile(join(project, name))) as {
                 rules?: Record<string, unknown>;
             };
@@ -72,6 +85,16 @@ describe('the presets', () => {
         const said =
             '// eslint-disable-next-line eqeqeq -- loose on purpose\nexport const same = (a, b) => a == b;\n';
         expect(await fired(base(), 'said.js', said)).toEqual([]);
+    });
+
+    it('read every kind of JavaScript and TypeScript file, CommonJS and module files among them', async () => {
+        const bare =
+            '// eslint-disable-next-line eqeqeq\nconst same = (a, b) => a == b;\nvoid same;\n';
+        for (const name of ['bare.cjs', 'bare.mts', 'bare.cts', 'bare.jsx'])
+            expect(await fired(base(), name, bare), name).toContainEqual({
+                ruleId: '@eslint-community/eslint-comments/require-description',
+                severity: 2,
+            });
     });
 
     it('fail a disable comment that suppresses nothing', async () => {
@@ -103,12 +126,30 @@ describe('the presets', () => {
         ).toContainEqual({ ruleId: 'react-hooks/rules-of-hooks', severity: 2 });
     });
 
+    it("hold a JavaScript component's hooks to React's rules, reading its markup", async () => {
+        const text = [
+            "import { useState } from 'react';",
+            '',
+            'export const View = ({ open }) => {',
+            '    if (open) {',
+            '        useState(0);',
+            '    }',
+            '    return <p>open</p>;',
+            '};',
+            '',
+        ].join('\n');
+        expect(
+            await fired([...base(), ...react({ files: ['**/*.jsx'] })], 'view.jsx', text)
+        ).toContainEqual({ ruleId: 'react-hooks/rules-of-hooks', severity: 2 });
+    });
+
     it('let a test take more parameters than code does, and change nothing else for it', async () => {
         const text = 'export const row = (a, b, c, d, e) => [a, b, c, d, e];\n';
         expect(await fired(base(), 'row.js', text)).toEqual([
             { ruleId: 'max-params', severity: 2 },
         ]);
         expect(await fired([...base(), ...tests()], 'row.test.js', text)).toEqual([]);
+        expect(await fired([...base(), ...tests()], 'row.test.cjs', text)).toEqual([]);
         const rules = tests().flatMap(({ rules: set }) => Object.entries(set ?? {}));
         expect(rules).toEqual([['max-params', 'off']]);
     });

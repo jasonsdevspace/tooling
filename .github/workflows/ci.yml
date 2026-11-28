@@ -456,11 +456,12 @@ jobs:
                   cd "$RUNNER_TEMP/consumer"
                   printf 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n' > .npmrc
                   npm init -y
-                  peers=$(node -p "const d = require('$GITHUB_WORKSPACE/package.json').devDependencies; ['eslint', 'typescript-eslint', 'typescript', 'prettier'].map((name) => name + '@' + d[name]).join(' ')")
+                  peers=$(node -p "const d = require('$GITHUB_WORKSPACE/package.json').devDependencies; ['eslint', 'typescript-eslint', 'typescript', 'prettier', 'eslint-plugin-react-hooks'].map((name) => name + '@' + d[name]).join(' ')")
                   npm install --engine-strict --ignore-scripts --save-dev "$RUNNER_TEMP"/jasonsdevspace-config-*.tgz $peers
                   npm pkg set type=module prettier=@jasonsdevspace/config/prettier
                   cat > eslint.config.js <<'JS'
-                  import { base, react, tests, typed } from '@jasonsdevspace/config/eslint';
+                  import { base, tests, typed } from '@jasonsdevspace/config/eslint';
+                  import { react } from '@jasonsdevspace/config/react';
                   import { defineConfig } from 'eslint/config';
 
                   export default defineConfig(
@@ -474,6 +475,23 @@ jobs:
                   mkdir src
                   printf "export const same = (a: number, b: number): boolean => a === b;\n" > src/same.ts
                   ./node_modules/.bin/prettier --write . > /dev/null
+                  # Runs a command that should refuse, and fails unless it exits with the status given
+                  # and names what it refused, so a crash or a missing config is never a refusal.
+                  cat > refusals.sh <<'SH'
+                  refuses() {
+                      expected=$1
+                      named=$2
+                      shift 2
+                      status=0
+                      "$@" > refused 2>&1 || status=$?
+                      if [ "$status" -ne "$expected" ] || ! grep -q "$named" refused; then
+                          echo "$* did not refuse with status $expected naming $named, it gave $status:"
+                          cat refused
+                          exit 1
+                      fi
+                      rm refused
+                  }
+                  SH
 
             - name: Pass code that keeps every rule
               working-directory: ${{ runner.temp }}/consumer
@@ -482,38 +500,19 @@ jobs:
                   ./node_modules/.bin/tsc -p .
                   ./node_modules/.bin/prettier --check .
 
-            # Each refused with status 1 and the rule's own words, so a crash is not taken for a
-            # refusal.
+            # ESLint refuses with status 1 and the rule's name, and the compiler with an error's
+            # code, so a crash or a missing config is never taken for a refusal.
             - name: Refuse code that breaks a rule
               working-directory: ${{ runner.temp }}/consumer
               run: |
-                  refuses() {
-                      status=0
-                      "$@" > refused 2>&1 || status=$?
-                      if [ "$status" -ne 1 ] && [ "$status" -ne 2 ]; then
-                          echo "$* did not refuse, it gave $status:"
-                          cat refused
-                          exit 1
-                      fi
-                  }
-                  says() {
-                      if ! grep -q "$1" refused; then
-                          echo "the refusal did not name $1:"
-                          cat refused
-                          exit 1
-                      fi
-                  }
+                  . ./refusals.sh
                   printf "export const same = (a: number, b: number): boolean => a == b;\n" > src/same.ts
-                  refuses ./node_modules/.bin/eslint .
-                  says eqeqeq
+                  refuses 1 eqeqeq ./node_modules/.bin/eslint .
                   printf "const later = async (): Promise<number> => 1;\nvoid 0;\nlater();\nexport {};\n" > src/same.ts
-                  refuses ./node_modules/.bin/eslint .
-                  says no-floating-promises
+                  refuses 1 no-floating-promises ./node_modules/.bin/eslint .
                   printf "const xs: number[] = [];\nexport const first: number = xs[0];\n" > src/same.ts
-                  refuses ./node_modules/.bin/tsc -p .
-                  says TS2322
+                  refuses 2 TS2322 ./node_modules/.bin/tsc -p .
                   printf "export const same = (a: number, b: number): boolean => a === b;\n" > src/same.ts
-                  rm refused
 
             # As Node and as a bundler resolve the types, with the package's own declarations
             # checked whole, so one that a setting cannot find fails here, not in a repository
@@ -523,13 +522,14 @@ jobs:
               run: |
                   cat > uses.mts <<'TS'
                   import type { Linter } from 'eslint';
-                  import { base, react, tests, typed } from '@jasonsdevspace/config/eslint';
+                  import { base, tests, typed } from '@jasonsdevspace/config/eslint';
                   import prettier from '@jasonsdevspace/config/prettier';
+                  import { react } from '@jasonsdevspace/config/react';
                   const presets: Linter.Config[] = [...base(), ...typed({ tsconfigRootDir: '.' }), ...react({ files: [] }), ...tests()];
                   export const width: number = prettier.printWidth + presets.length;
                   TS
-                  ./node_modules/.bin/tsc --ignoreConfig --strict --noEmit --skipLibCheck --target es2023 --module nodenext --moduleResolution nodenext uses.mts
-                  ./node_modules/.bin/tsc --ignoreConfig --strict --noEmit --skipLibCheck --target es2023 --module preserve --moduleResolution bundler uses.mts
+                  ./node_modules/.bin/tsc --ignoreConfig --strict --noEmit --skipLibCheck false --target es2023 --module nodenext --moduleResolution nodenext uses.mts
+                  ./node_modules/.bin/tsc --ignoreConfig --strict --noEmit --skipLibCheck false --target es2023 --module preserve --moduleResolution bundler uses.mts
                   # Removed, so the runs after this read only the files they were written with.
                   rm uses.mts
 
@@ -542,12 +542,10 @@ jobs:
             - name: Pass and refuse on the project's Node
               working-directory: ${{ runner.temp }}/consumer
               run: |
+                  . ./refusals.sh
                   ./node_modules/.bin/eslint .
                   printf "export const same = (a: number, b: number): boolean => a == b;\n" > src/same.ts
-                  if ./node_modules/.bin/eslint .; then
-                      echo "the presets passed a loose comparison"
-                      exit 1
-                  fi
+                  refuses 1 eqeqeq ./node_modules/.bin/eslint .
 
             # A release publishes this tarball, now that it is proven, so the job that holds the
             # publish token never installs or builds anything.

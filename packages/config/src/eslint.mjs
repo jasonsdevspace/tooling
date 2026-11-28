@@ -2,7 +2,6 @@ import js from '@eslint/js';
 import comments from '@eslint-community/eslint-plugin-eslint-comments';
 import { defineConfig } from 'eslint/config';
 import importX from 'eslint-plugin-import-x';
-import reactHooks from 'eslint-plugin-react-hooks';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
 import sonarjs from 'eslint-plugin-sonarjs';
 import globals from 'globals';
@@ -19,11 +18,13 @@ import tseslint from 'typescript-eslint';
  *
  * Each preset is a function that returns flat config objects, so a repository spreads the ones it
  * takes into its own `defineConfig` and adds its own blocks after them: the folders that run in a
- * browser, the imports one folder may not make, the files no tsconfig includes.
+ * browser, the imports one folder may not make, the files no tsconfig includes. React's rules of
+ * hooks live apart, in `@jasonsdevspace/config/react`, so a repository without React installs no
+ * plugin for them.
  */
 
 /** Every file of code a preset reads. */
-const CODE = ['**/*.{ts,tsx,mjs,js}'];
+const CODE = ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
 
 /**
  * Rules that fire on real mistakes and almost never on style.
@@ -122,7 +123,7 @@ export function base({ ignores = [] } = {}) {
 export function typed({ tsconfigRootDir, allowDefaultProject }) {
     return defineConfig({
         extends: [...tseslint.configs.recommendedTypeChecked],
-        files: ['**/*.{ts,tsx}'],
+        files: ['**/*.{ts,tsx,mts,cts}'],
         languageOptions: {
             parserOptions: {
                 projectService: allowDefaultProject === undefined ? true : { allowDefaultProject },
@@ -145,52 +146,12 @@ export function typed({ tsconfigRootDir, allowDefaultProject }) {
 }
 
 /**
- * React's rules of hooks, every one the plugin recommends raised to an error with its options
- * kept, and the browser's globals, for the files that render in a browser.
- *
- * @param {{ files: string[] }} options The files that hold components and hooks.
- * @returns {import('eslint').Linter.Config[]}
- */
-export function react({ files }) {
-    /** @type {Record<string, import('eslint').Linter.RuleEntry>} */
-    const recommended = reactHooks.configs.flat.recommended.rules;
-    return defineConfig({
-        files,
-        languageOptions: { globals: globals.browser },
-        // The plugin's own types describe its legacy configs beside the rules, which ESLint's
-        // plugin type does not admit, so it is passed on as the plugin it is at run time.
-        plugins: {
-            'react-hooks': /** @type {import('eslint').ESLint.Plugin} */ (
-                /** @type {unknown} */ (reactHooks)
-            ),
-        },
-        rules: Object.fromEntries(
-            Object.entries(recommended).map(([rule, setting]) => [rule, raised(setting)])
-        ),
-    });
-}
-
-/**
  * The one rule a test may break: a fixture builder takes a record's fields in order, so a table of
  * fixtures reads as one row per line, which an object of named fields would spread over several.
  *
  * @param {{ files?: string[] }} [options] The test files, every `*.test.*` file unless named.
  * @returns {import('eslint').Linter.Config[]}
  */
-export function tests({ files = ['**/*.test.{ts,tsx,mjs,js}'] } = {}) {
+export function tests({ files = ['**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'] } = {}) {
     return defineConfig({ files, rules: { 'max-params': 'off' } });
 }
-
-/**
- * A rule's setting with a warning raised to an error and its options kept.
- *
- * @param {import('eslint').Linter.RuleEntry} setting
- * @returns {import('eslint').Linter.RuleEntry}
- */
-const raised = (setting) => {
-    if (setting === 'warn' || setting === 1) return 'error';
-    if (Array.isArray(setting) && (setting[0] === 'warn' || setting[0] === 1)) {
-        return ['error', ...setting.slice(1)];
-    }
-    return setting;
-};

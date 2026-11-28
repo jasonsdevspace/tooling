@@ -7,7 +7,8 @@ import { defineConfig } from 'eslint/config';
  * repository's own.
  */
 export default defineConfig(
-    ...base(),
+    // The packages' declarations are written from their JSDoc and checked against it by a test.
+    ...base({ ignores: ['packages/*/types'] }),
     {
         // A package's exports are declarations, since the types written from its JSDoc keep a
         // function's docs only on a declaration, and the published types are what a repository

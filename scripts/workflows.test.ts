@@ -56,6 +56,60 @@ const jobsOf = (text: string) => {
         }));
 };
 
+/** npm's flags before its subcommand, each with its value where it takes one. */
+const FLAGS = String.raw`(?:(?:--prefix|--workspace|-w|-C|--cache|--loglevel|--userconfig)\s+\S+\s+|-\S+\s+)*`;
+
+/**
+ * Whether a line runs npm or npx to install or fetch a package, by its words: npx, or npm with an
+ * install or exec subcommand after only its flags. A plain match, not a reading of the shell.
+ */
+const INSTALLING = new RegExp(
+    String.raw`(?:^|[\s;&|(])(?:npx(?=\s)|npm\s+${FLAGS}(?:ci|install|i|add|exec|x|rebuild|update|link|install-test|it)(?=\s|$))`
+);
+
+/**
+ * The lines of a workflow that install or fetch with npm where npm reads no project `.npmrc`, and so
+ * runs install scripts unless the line turns them off: a global install, any step of a job that
+ * checks nothing out, and a step that runs outside the repository, by its working-directory or a
+ * `cd` into the runner's temporary folder or an absolute path.
+ */
+const outsideInstalls = (text: string): string[] =>
+    jobsOf(text).flatMap(({ body }) => {
+        const checkedOut = /uses: actions\/checkout@/.test(body);
+        return stepsOf(body).flatMap((step) => {
+            const outside =
+                !checkedOut ||
+                /working-directory:\s*(?:\$\{\{\s*runner\.temp|\/|~|"?\$RUNNER_TEMP)/.test(
+                    step.text
+                ) ||
+                /\bcd\s+"?(?:\$RUNNER_TEMP|\$\{\{\s*runner\.temp|\/|~)/.test(step.text);
+            return step.text
+                .split('\n')
+                .filter(
+                    (line) =>
+                        INSTALLING.test(line) &&
+                        (outside || /\s(?:-g|--global)(?=\s|$)/.test(line)) &&
+                        !/--ignore-scripts(?![=\w-])|--ignore-scripts=true/.test(line)
+                )
+                .map((line) => line.trim());
+        });
+    });
+
+/**
+ * The lines that fetch a package and run it: npx, `npm exec` and `npm x`, and `npm init` or `npm
+ * create` given an initializer, which always fetches it, each refused unless `--no-install` holds
+ * it to what the lockfile installed.
+ */
+const fetchingLines = (lines: readonly string[]): string[] =>
+    lines
+        .filter(
+            (line) =>
+                new RegExp(
+                    String.raw`(?:^|[\s;&|(])(?:npx(?=\s)|npm\s+${FLAGS}(?:exec|x)(?=\s)|npm\s+(?:init|create|innit)\s+(?!-)\S)`
+                ).test(line) && !/--no-install\b/.test(line)
+        )
+        .map((line) => line.trim());
+
 describe('the workflows', () => {
     const steps = [...workflows.values()].flatMap(stepsOf);
 
@@ -232,11 +286,47 @@ describe('the workflows', () => {
         }
     });
 
-    it('run npx only with --no-install, so it runs the tool the lockfile installed and fetches nothing', () => {
-        const fetching = steps
-            .flatMap(({ text }) => text.split('\n'))
-            .filter((line) => /(?:^|[\s;&|(])npx(?=\s)(?!\s+--no-install\b)/.test(line));
-        expect(fetching).toEqual([]);
+    it('fetch nothing with npx, npm exec, npm x or npm init without --no-install', () => {
+        expect(fetchingLines(steps.flatMap(({ text }) => text.split('\n')))).toEqual([]);
+    });
+
+    it('read a fetch by its words', () => {
+        expect(
+            fetchingLines([
+                'npx tsc',
+                'npx --no-install tsc',
+                'npm exec tsc',
+                'npm x --no-install tsc',
+                'npm init vite',
+                'npm create vite',
+                'npm init -y',
+                'npm ci',
+            ])
+        ).toEqual(['npx tsc', 'npm exec tsc', 'npm init vite', 'npm create vite']);
+    });
+
+    it('turn install scripts off on every install where npm reads no project .npmrc', () => {
+        expect([...workflows.values()].flatMap(outsideInstalls)).toEqual([]);
+    });
+
+    it('find an install outside the repository that leaves install scripts on', () => {
+        const release = workflows.get(RELEASE) ?? '';
+        const dropped = release.replace(/(npm install -g[^\n]*?) --ignore-scripts/, '$1');
+        expect(dropped).not.toBe(release);
+        expect(outsideInstalls(dropped)).toEqual([
+            expect.stringMatching(/^npm install -g --offline "\$tarball"$/),
+        ]);
+        const job = (step: string, checkout = '            - uses: actions/checkout@v7\n') =>
+            `jobs:\n    a:\n        steps:\n${checkout}${step}`;
+        expect(
+            outsideInstalls(
+                job(
+                    '            - working-directory: ${{ runner.temp }}/x\n              run: npm ci\n'
+                )
+            )
+        ).toEqual(['run: npm ci']);
+        expect(outsideInstalls(job('            - run: npm ci\n', ''))).toEqual(['- run: npm ci']);
+        expect(outsideInstalls(job('            - run: npm ci\n'))).toEqual([]);
     });
 
     it('publish packages that run no script of their own when they are installed', () => {

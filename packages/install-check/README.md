@@ -19,11 +19,18 @@ breaks the rule.
 - **Every package root holds a `.npmrc` that sets `ignore-scripts=true`.** A package root is the
   repository's root, and any folder with a `package.json` of its own that no package above it lists
   as a workspace, such as a demo with its own dependencies. npm reads a project's `.npmrc` from the
-  root of the project it runs in, and a workspace shares its root's.
+  root of the project it runs in, and a workspace shares its root's. Workspace globs are read as npm
+  reads them, a brace list expanded and a `!` entry leaving a folder out, so a folder left out is a
+  package root of its own.
 - **No `.npmrc` sets `ignore-scripts` to anything but `true`**, so nothing turns the setting back on.
 - **Every Dockerfile stage that runs npm or npx sets `ENV npm_config_ignore_scripts=true` before
-  it.** Each `FROM` starts a stage with the setting unset, and an image build often copies only a
-  `package.json` and its lockfile before installing, so the `.npmrc` may not be there.
+  it**, or `ARG npm_config_ignore_scripts=true`, since a build argument is set for each RUN too. A
+  `FROM` an image starts a stage with the setting unset, and a `FROM` an earlier stage inherits that
+  stage's setting. An image build often copies only a `package.json` and its lockfile before
+  installing, so the `.npmrc` may not be there.
+- **No RUN turns install scripts back on for its own npm**, with `--ignore-scripts=false`,
+  `--no-ignore-scripts` or an `npm_config_ignore_scripts` set before the command to anything but
+  `true`, even after the stage's setting.
 
 npm honors the setting for `npm ci`, `npm install`, npx and every other way of installing, so no
 workflow, script or Dockerfile command needs to be read for how it installs. A flag such as
@@ -49,11 +56,14 @@ A global install, such as `npm install -g`, does not read a project's `.npmrc`, 
 
 - **Every `package.json`**, to find the package roots and the workspaces each lists, as an array or
   under `packages`, with `*` for one folder's name and `**` for any depth.
-- **Every `.npmrc`**, for its `ignore-scripts` lines.
+- **Every `.npmrc`**, for its `ignore-scripts` lines at the top level, as npm's ini reader takes
+  them: a quoted value unquoted, an inline `;` or `#` comment left out, and a key written alone read
+  as true.
 - **Dockerfiles**, any file named `Dockerfile`, `Dockerfile.` followed by a name, or ending in
   `.Dockerfile`: each `FROM`, each `ENV` that sets `npm_config_ignore_scripts` in either form ENV
-  takes, and each `RUN` that names `npm` or `npx` as a word, with continued lines joined past
-  comment lines, as Docker joins them, and a heredoc's body kept with its `RUN`.
+  takes or as an `ARG`, and each `RUN` that names `npm` or `npx` where it starts a command word, so
+  not inside a path such as `~/.npm`, with continued lines joined past comment and blank lines, as
+  Docker joins them, and a heredoc's body kept with its `RUN`.
 
 It reads every file git tracks and every new one git would add, leaving out what the repository
 ignores.

@@ -1,13 +1,14 @@
 {
     "name": "@jasonsdevspace/install-check",
     "version": "0.1.0",
-    "description": "Fails a build on an npm install that runs its packages' install scripts, in a repository's workflows, composite actions and Dockerfiles, naming each file and line.",
+    "description": "Fails a build wherever npm could run install scripts: a package root whose .npmrc does not set ignore-scripts=true, a .npmrc that turns it back on, or a Dockerfile stage that runs npm before turning it off.",
     "keywords": [
         "npm",
         "install-scripts",
-        "supply-chain",
-        "github-actions",
-        "ci"
+        "ignore-scripts",
+        "npmrc",
+        "dockerfile",
+        "supply-chain"
     ],
     "license": "MIT",
     "author": "Jason Poteet",

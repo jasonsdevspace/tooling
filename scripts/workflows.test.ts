@@ -739,6 +739,8 @@ describe('the shared pull request message workflow', () => {
         readonly title?: string;
         readonly body?: string;
         readonly author?: string;
+        /** Serve a tarball without the commit message command, as a release before 0.3.0 is. */
+        readonly missing?: boolean;
     }
 
     /**
@@ -747,11 +749,12 @@ describe('the shared pull request message workflow', () => {
      * given. An entry of `null` leaves the prose check out of the lockfile.
      */
     const ends = (given: Case = {}) => {
-        const { entry, title, body, author } = {
+        const { entry, title, body, author, missing } = {
             entry: {},
             title: 'Check each pull request title',
             body: 'A plain body.',
             author: 'someone',
+            missing: false,
             ...given,
         };
         const dir = mkdtempSync(join(work, 'case-'));
@@ -770,10 +773,30 @@ describe('the shared pull request message workflow', () => {
                           ...entry,
                       },
                   };
-        writeFileSync(join(dir, 'package-lock.json'), JSON.stringify({ packages }));
+        let served = tarball;
+        let recorded = integrity;
+        if (missing) {
+            const unpacked = join(dir, 'old');
+            mkdirSync(unpacked);
+            spawnSync('tar', ['-xzf', tarball, '-C', unpacked]);
+            rmSync(join(unpacked, 'package/bin/check-commit-message.mjs'));
+            served = join(dir, 'old.tgz');
+            spawnSync('tar', ['-czf', served, '-C', unpacked, 'package']);
+            recorded = `sha512-${createHash('sha512').update(readFileSync(served)).digest('base64')}`;
+        }
+        const lock =
+            entry === null
+                ? packages
+                : {
+                      'node_modules/@jasonsdevspace/prose-check': {
+                          ...packages['node_modules/@jasonsdevspace/prose-check'],
+                          ...(missing ? { integrity: recorded } : {}),
+                      },
+                  };
+        writeFileSync(join(dir, 'package-lock.json'), JSON.stringify({ packages: lock }));
         writeFileSync(
             join(bin, 'curl'),
-            `#!/bin/bash\nwhile [ $# -gt 1 ]; do [ "$1" = --output ] && out=$2; shift; done\ncp "${tarball}" "$out"\n`
+            `#!/bin/bash\nwhile [ $# -gt 1 ]; do [ "$1" = --output ] && out=$2; shift; done\ncp "${served}" "$out"\n`
         );
         chmodSync(join(bin, 'curl'), 0o755);
         const { status, stdout, stderr } = spawnSync(
@@ -889,6 +912,33 @@ describe('the shared pull request message workflow', () => {
         const unnamed = ends({ entry: { version: '' } });
         expect(unnamed.status).toBe(1);
         expect(unnamed.output).toContain('names no version of the prose check');
-        expect(ends({ entry: null }).status).not.toBe(0);
+        const left = ends({ entry: null });
+        expect(left.status).toBe(1);
+        expect(left.output).toContain('names no version of the prose check');
+    });
+
+    it('reads the lockfile as data, so a lockfile that is a folder of code runs nothing', () => {
+        expect(script).not.toMatch(/require\(['"]\.\/package-lock/);
+        expect(script).toMatch(/readFileSync\('package-lock\.json', 'utf8'\)/);
+    });
+
+    it('takes a lockfile hash list whose sha512 entry matches, beside an older hash', () => {
+        expect(
+            ends({ entry: { integrity: `${integrity} sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=` } }).status
+        ).toBe(0);
+    });
+
+    it('says to move a prose check too old to have the commit message command', () => {
+        const old = ends({ entry: {}, missing: true });
+        expect(old.status).toBe(1);
+        expect(old.output).toContain('move it to 0.3.0 or later');
+    });
+
+    it('checks a body with Windows line ends as it checks the same body with plain ones', () => {
+        expect(ends({ body: 'A plain body.\r\nSecond line.\r\n' }).status).toBe(0);
+    });
+
+    it('retries a failed download of the tarball', () => {
+        expect(script).toMatch(/curl [^\n]*--retry \d/);
     });
 });

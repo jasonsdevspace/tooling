@@ -12,7 +12,8 @@ name: Pull request message check
 # Dependabot's body quotes release notes written elsewhere, so only its title is held to the house
 # rules.
 # GitHub shows the check under the caller's job name and then this job's, so a caller job named
-# Message reports it as "Message / PR title and body".
+# Message reports it as "Message / PR title and body". A caller runs it on pull_request alone, since
+# a merge queue's merge_group event carries no pull request to check.
 on:
     workflow_call:
 
@@ -47,14 +48,15 @@ jobs:
                       echo "this check runs only for a pull request, and was called without one"
                       exit 1
                   fi
+                  BODY=${BODY//$'\r'/}
                   if [ "$AUTHOR" = "dependabot[bot]" ]; then
                       printf '%s\n' "$TITLE" > "$RUNNER_TEMP/message"
                   else
                       printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/message"
                   fi
-                  values=$(node -p "const p = require('./package-lock.json').packages['node_modules/@jasonsdevspace/prose-check']; [p.version, p.resolved, p.integrity].join('\n')")
-                  { read -r version; read -r resolved; read -r integrity; } <<< "$values"
-                  if [ -z "$version" ] || [ "$version" = undefined ]; then
+                  values=$(node -p "const p = JSON.parse(require('node:fs').readFileSync('package-lock.json', 'utf8')).packages?.['node_modules/@jasonsdevspace/prose-check']; [p?.version ?? '', p?.resolved ?? '', p?.integrity ?? ''].join('\n')")
+                  { read -r version || true; read -r resolved || true; read -r integrity || true; } <<< "$values"
+                  if [ -z "$version" ]; then
                       echo "the lockfile names no version of the prose check"
                       exit 1
                   fi
@@ -63,11 +65,21 @@ jobs:
                       echo "the lockfile resolves the prose check outside the npm registry"
                       exit 1
                   fi
-                  curl --fail --silent --show-error --proto '=https' --max-time 60 --output "$RUNNER_TEMP/prose-check.tgz" "$resolved"
-                  if [ "sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/prose-check.tgz" | base64 -w0)" != "$integrity" ]; then
+                  curl --fail --silent --show-error --proto '=https' --max-time 60 --retry 3 --retry-connrefused --output "$RUNNER_TEMP/prose-check.tgz" "$resolved"
+                  computed="sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/prose-check.tgz" | base64 -w0)"
+                  matched=
+                  for entry in $integrity; do
+                      [ "$entry" = "$computed" ] && matched=yes
+                  done
+                  if [ -z "$matched" ]; then
                       echo "the prose check's tarball does not match the lockfile's hash"
                       exit 1
                   fi
                   mkdir "$RUNNER_TEMP/prose-check"
                   tar -xzf "$RUNNER_TEMP/prose-check.tgz" -C "$RUNNER_TEMP/prose-check"
-                  node "$RUNNER_TEMP/prose-check/package/bin/check-commit-message.mjs" --as-is "$RUNNER_TEMP/message"
+                  checker="$RUNNER_TEMP/prose-check/package/bin/check-commit-message.mjs"
+                  if [ ! -f "$checker" ]; then
+                      echo "the lockfile pins prose check $version, which has no check-commit-message, so move it to 0.3.0 or later"
+                      exit 1
+                  fi
+                  node "$checker" --as-is "$RUNNER_TEMP/message"

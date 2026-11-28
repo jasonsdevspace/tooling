@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Fails when the repository it is run in installs npm packages with their install scripts on, in a
- * workflow, a composite action or a Dockerfile, naming each file and line, and passes otherwise.
+ * Fails when the repository it is run in lets npm run install scripts: a package root whose `.npmrc`
+ * does not set `ignore-scripts=true`, a `.npmrc` that turns them back on, or a Dockerfile stage that
+ * runs npm before setting `npm_config_ignore_scripts=true`, naming each file, and passes otherwise.
  * It exits 0 on a pass, 1 on a refusal, and 2 with how to run it when given an argument or run
  * outside a git repository.
  */
@@ -23,10 +24,8 @@ try {
     process.exit(2);
 }
 if (failures.length > 0) {
-    console.error(
-        `Install check failed. Each install below runs its packages' install scripts, so add --ignore-scripts:\n`
-    );
+    console.error(`Install check failed. Each place below lets npm run install scripts:\n`);
     console.error(failures.join('\n'));
     process.exit(1);
 }
-console.log('Install check passed. Every install leaves install scripts off.');
+console.log('Install check passed. npm runs no install scripts here.');

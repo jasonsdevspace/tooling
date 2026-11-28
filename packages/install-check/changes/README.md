@@ -6,15 +6,15 @@ in a file of its own named for the issue it closes or is part of, such as `284.m
 the other free of conflicts. A later pull request for the same issue adds to its file.
 
 A file opens with a sentence for the entry's opening paragraph, then holds a bullet for each part of
-the change, each opened by the lead-in the changelog's entries use, in their order: **Readers.**,
+the change, each opened by the lead-in the changelog's entries use, in their order: **Rules.**,
 **Command.**, **Function.**, **Docs.** and **Tests.**, each only where the change has something to
 say:
 
 ```markdown
-A shell script's installs are read.
+A `.npmrc` that sets the option twice is read by its last line.
 
-- **Readers.** Each line of a `.sh` file is read as a script.
-- **Tests.** An `npm ci` in a shell script fails the check.
+- **Rules.** The last line of a `.npmrc` that sets `ignore-scripts` decides it.
+- **Tests.** A `.npmrc` that sets it to true and then to false fails the check.
 ```
 
 The pull request that bumps the version folds every file here into the version's entry, its opening

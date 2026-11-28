@@ -6,10 +6,13 @@ conduct](https://github.com/jasonsdevspace/.github/blob/main/CODE_OF_CONDUCT.md)
 
 ## Setting up and running the checks
 
-[Development](../README.md#development) in the README says how to install and what each check
-covers. Before a pull request, run the checks CI runs too:
+[Development](../README.md#development) in the README says what each check covers. Install, then set
+up the hooks by name, since the `.npmrc` turns npm's install scripts off and npm skips `prepare`
+with them, and run the checks CI runs before a pull request:
 
 ```bash
+npm ci
+npm run prepare
 npm run verify
 ```
 

@@ -5,10 +5,10 @@ a fix reaches every repository by moving one exact pin, and no repository keeps 
 
 ## Packages
 
-| Package                                                                                        | What it does                                                                                                                                                                                             |
-| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@jasonsdevspace/prose-check`](https://www.npmjs.com/package/@jasonsdevspace/prose-check)     | Fails a build on prose that should never reach a reader, in comments, docs and page text. Its [README](packages/prose-check/README.md) lists every rule.                                                 |
-| [`@jasonsdevspace/install-check`](https://www.npmjs.com/package/@jasonsdevspace/install-check) | Fails a build on an npm install that runs its packages' install scripts, in workflows, composite actions and Dockerfiles. Its [README](packages/install-check/README.md) says what counts as an install. |
+| Package                                                                                        | What it does                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`@jasonsdevspace/prose-check`](https://www.npmjs.com/package/@jasonsdevspace/prose-check)     | Fails a build on prose that should never reach a reader, in comments, docs and page text. Its [README](packages/prose-check/README.md) lists every rule.                                                                       |
+| [`@jasonsdevspace/install-check`](https://www.npmjs.com/package/@jasonsdevspace/install-check) | Fails a build where npm could run install scripts: a package root whose `.npmrc` does not turn them off, or a Dockerfile stage that runs npm before turning them off. Its [README](packages/install-check/README.md) says why. |
 
 Each package is versioned on its own and keeps its own changelog.
 
@@ -28,15 +28,17 @@ only once it is promoted on npm, and a release on GitHub carries its changelog e
 
 ## Development
 
-Install with `npm ci`, on the Node in `.nvmrc`, which also sets up the hook that checks each commit
-message. `npm run verify` runs every check CI runs on a pull request:
+Install with `npm ci`, on the Node in `.nvmrc`, then run `npm run prepare` to set up the hooks that
+check each commit and its message. The `.npmrc` turns npm's install scripts off, so npm runs no
+package's code as it installs, and it skips this repository's own `prepare` as well until it is run
+by name. `npm run verify` runs every check CI runs on a pull request:
 
 - `npm run type-check`, the TypeScript compiler over the scripts and each package
 - `npm run lint`, ESLint, where every rule is an error
 - `npm run format:check`, Prettier
 - `npm run prose`, the prose check from this repository's own package, over every file it reads
-- `npm run installs`, the install check from this repository's own package, over every workflow,
-  composite action and Dockerfile
+- `npm run installs`, the install check from this repository's own package, over its `.npmrc` and
+  any Dockerfile
 - `npm run node-check`, which keeps every place that names a Node major on the one in `.nvmrc`
 - `npm run test:run`, the unit tests, the workflows' own tests among them
 

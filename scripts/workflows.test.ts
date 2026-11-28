@@ -4,16 +4,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { installs, npmCommandsIn, runsOf } from '@jasonsdevspace/install-check';
 import { describe, expect, it } from 'vitest';
 
 import { repositoryFiles } from './repository.mjs';
 
 /*
- * What the workflows promise that only reading them can hold: only the tools the lockfile installs
- * run with npx, every job on a named image
- * with a time limit, and a release that publishes each package from its own tag, artifact and
- * checksum, from a job that holds the publishing token and does nothing else.
+ * What the workflows promise that only reading them can hold: npx run only with --no-install, every
+ * job on a named image with a time limit, and a release that publishes each package from its own
+ * tag, artifact and checksum, from a job that holds the publishing token and does nothing else.
  */
 
 const workflows = repositoryFiles(import.meta.url, (path) =>
@@ -58,89 +56,8 @@ const jobsOf = (text: string) => {
         }));
 };
 
-/** An npm or npx command a step runs, as the install check reads it, and the folder it runs in. */
-type NpmCommand = ReturnType<typeof npmCommandsIn>[number] & { readonly dir: string | undefined };
-
-/** What a command fetches and runs from npm: a package by its name, or the tool a package provides. */
-interface Fetched {
-    readonly kind: 'bin' | 'package';
-    readonly name: string;
-}
-
-/**
- * What npx or `npm exec` runs, from the words after it: the package `--package` names, or else the
- * tool. npx's own options come before the tool, and what follows the tool is the tool's own.
- */
-const npxTarget = (words: readonly string[]): Fetched => {
-    let at = 0;
-    while (at < words.length && (words[at] ?? '').startsWith('-')) {
-        at += words[at] === '--package' || words[at] === '-p' ? 2 : 1;
-    }
-    const options = words.slice(0, at);
-    const named = options.findIndex((word) => word === '--package' || word === '-p');
-    const pkg =
-        options.find((word) => word.startsWith('--package='))?.slice('--package='.length) ??
-        (named >= 0 ? options[named + 1] : undefined);
-    if (pkg !== undefined) return { kind: 'package', name: pkg.replace(/(?<=.)@.*$/, '') };
-    return { kind: 'bin', name: words[at] ?? '' };
-};
-
-/**
- * The package a command would fetch and run, if it runs one: what npx or `npm exec` runs, or the
- * initializer `npm init` or `npm create` names. Nothing for a command that runs nothing from npm.
- */
-const fetchedBy = ({ npx, command, args }: NpmCommand): Fetched | undefined => {
-    const words = args.filter((word) => word !== '--');
-    if (npx || command === 'exec' || command === 'x') return npxTarget(words);
-    if (!['init', 'create', 'innit'].includes(command)) return undefined;
-    const name = words.find((word) => !word.startsWith('-'));
-    return name === undefined ? undefined : { kind: 'package', name: `create-${name}` };
-};
-
-/** A lockfile's entries, by their path under node_modules, each as unknown until looked at. */
-const entriesOf = (lockfile: unknown): [string, unknown][] => {
-    const listed =
-        typeof lockfile === 'object' && lockfile !== null && 'packages' in lockfile
-            ? lockfile.packages
-            : undefined;
-    if (typeof listed !== 'object' || listed === null) return [];
-    return Object.keys(listed).map((key): [string, unknown] => [key, Reflect.get(listed, key)]);
-};
-
-/** The commands an entry puts on the path: its own name for a single bin, or each it names. */
-const binsOf = (name: string, entry: unknown): string[] => {
-    const bin: unknown =
-        typeof entry === 'object' && entry !== null && 'bin' in entry ? entry.bin : undefined;
-    if (typeof bin === 'string') return [name.split('/').pop() ?? name];
-    return typeof bin === 'object' && bin !== null ? Object.keys(bin) : [];
-};
-
-/** The packages the lockfile installs at the top of node_modules, and the commands they put on the path. */
-const lockfileTools = (lockfile: unknown) => {
-    const packages = new Set<string>();
-    const bins = new Set<string>();
-    for (const [path, entry] of entriesOf(lockfile)) {
-        if (path.lastIndexOf('node_modules/') !== 0) continue;
-        const name = path.slice('node_modules/'.length);
-        packages.add(name);
-        for (const bin of binsOf(name, entry)) bins.add(bin);
-    }
-    return { packages, bins };
-};
-
-/** The lockfile at the root, which says what npm installs and what tools npx finds. */
-const LOCKFILE: unknown = JSON.parse(
-    readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
-);
-
 describe('the workflows', () => {
     const steps = [...workflows.values()].flatMap(stepsOf);
-    /** Every npm and npx command the workflows' steps run. */
-    const npmCommands: NpmCommand[] = [...workflows.values()].flatMap((text) =>
-        runsOf(text).flatMap(({ run, dir }) =>
-            npmCommandsIn(run).map((command) => ({ ...command, dir }))
-        )
-    );
 
     // A workflow that can publish to npm, by the environment npm's trusted publisher is registered
     // against. Its publishing job holds the token trusted publishing issues, so what it installs is
@@ -222,7 +139,7 @@ describe('the workflows', () => {
     const agreeEnds = (declared: string, changelog: string, version: string) => {
         const step =
             stepsOf(releaseJob('agree')).find(({ text }) => /declared=/.test(text))?.text ?? '';
-        const block = /declared=[\s\S]*?(?=\n\s*left=)/.exec(runsOf(step)[0]?.run ?? '')?.[0] ?? '';
+        const block = /declared=[\s\S]*?(?=\n\s*left=)/.exec(step)?.[0] ?? '';
         expect(block).not.toBe('');
         const root = mkdtempSync(join(tmpdir(), 'agree-'));
         try {
@@ -315,35 +232,11 @@ describe('the workflows', () => {
         }
     });
 
-    it('read at least one install in their own steps, so a reader that finds nothing fails', () => {
-        expect(npmCommands.filter(installs).length).toBeGreaterThan(0);
-    });
-
-    it('run with npx only the tools the lockfile installs, in the repository, so nothing is fetched with its scripts', () => {
-        const { packages, bins } = lockfileTools(LOCKFILE);
-        const fetched = npmCommands
-            .filter((command) => {
-                const wanted = fetchedBy(command);
-                if (wanted === undefined) return false;
-                // Outside the repository npx finds none of its tools, and fetches what it runs.
-                if (
-                    command.dir !== undefined &&
-                    (/\$\{\{/.test(command.dir) || command.dir.startsWith('/'))
-                )
-                    return true;
-                return wanted.kind === 'bin' ? !bins.has(wanted.name) : !packages.has(wanted.name);
-            })
-            .map(({ text }) => text);
-        expect(fetched).toEqual([]);
-    });
-
-    it('name what npx, npm exec and npm create fetch and run', () => {
-        const fetched = (script: string) =>
-            npmCommandsIn(script).map((command) => fetchedBy({ ...command, dir: undefined }));
-        expect(fetched('npx --package=evil tool')).toEqual([{ kind: 'package', name: 'evil' }]);
-        expect(fetched('npx tsc -p scripts')).toEqual([{ kind: 'bin', name: 'tsc' }]);
-        expect(fetched('npx -p evil@1 tool')).toEqual([{ kind: 'package', name: 'evil' }]);
-        expect(fetched('npm create vite')).toEqual([{ kind: 'package', name: 'create-vite' }]);
+    it('run npx only with --no-install, so it runs the tool the lockfile installed and fetches nothing', () => {
+        const fetching = steps
+            .flatMap(({ text }) => text.split('\n'))
+            .filter((line) => /(?:^|[\s;&|(])npx(?=\s)(?!\s+--no-install\b)/.test(line));
+        expect(fetching).toEqual([]);
     });
 
     it('publish packages that run no script of their own when they are installed', () => {

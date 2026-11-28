@@ -303,26 +303,33 @@ jobs:
                   npm init -y
                   npm install --engine-strict --ignore-scripts --save-dev "$RUNNER_TEMP"/jasonsdevspace-install-check-*.tgz
                   printf 'node_modules/\n' > .gitignore
-                  mkdir -p .github/workflows
-                  printf 'on: push\njobs:\n    a:\n        steps:\n            - run: npm ci --ignore-scripts\n' > .github/workflows/ci.yml
+                  printf 'ignore-scripts=true\n' > .npmrc
+                  printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
 
-            - name: Pass a repository whose installs leave scripts off
+            - name: Pass a repository that turns install scripts off
               working-directory: ${{ runner.temp }}/consumer
               run: ./node_modules/.bin/check-installs
 
-            # Refused with status 1, naming the file and line, so a crash is not taken for a refusal.
-            - name: Refuse an install that runs scripts
+            # Each refused with status 1, naming the file, so a crash is not taken for a refusal.
+            - name: Refuse a package root without the setting, and a Dockerfile stage without it
               working-directory: ${{ runner.temp }}/consumer
               run: |
+                  refuses() {
+                      status=0
+                      ./node_modules/.bin/check-installs 2> refused || status=$?
+                      if [ "$status" -ne 1 ] || ! grep -q "$1" refused; then
+                          echo "the command did not refuse $1 with status 1, it gave $status:"
+                          cat refused
+                          exit 1
+                      fi
+                  }
+                  mv .npmrc kept.npmrc
+                  refuses '^\.npmrc'
+                  mv kept.npmrc .npmrc
                   printf 'FROM node\nRUN npm ci\n' > Dockerfile
-                  status=0
-                  ./node_modules/.bin/check-installs 2> refused || status=$?
-                  if [ "$status" -ne 1 ] || ! grep -q 'Dockerfile:2' refused; then
-                      echo "the command did not refuse an install that runs scripts with status 1, it gave $status:"
-                      cat refused
-                      exit 1
-                  fi
-                  rm Dockerfile refused
+                  refuses 'Dockerfile:2'
+                  printf 'FROM node\nENV npm_config_ignore_scripts=true\nRUN npm ci\n' > Dockerfile
+                  rm refused
 
             # As Node and as a bundler resolve the types, with the package's own declarations
             # checked whole, so one that a setting cannot find fails here, not in a repository
@@ -331,10 +338,10 @@ jobs:
               working-directory: ${{ runner.temp }}/consumer
               run: |
                   cat > uses.mts <<'TS'
-                  import { installProblems, npmCommandsIn, runsOf } from '@jasonsdevspace/install-check';
+                  import { dockerfileProblems, installProblems } from '@jasonsdevspace/install-check';
                   const found: string[] = installProblems('.');
-                  const commands = runsOf('steps:\n    - run: npm ci\n').flatMap(({ run }) => npmCommandsIn(run));
-                  export const count: number = found.length + commands.length;
+                  const stage: string[] = dockerfileProblems('Dockerfile', 'FROM node\nRUN npm ci\n');
+                  export const count: number = found.length + stage.length;
                   TS
                   tsc="$GITHUB_WORKSPACE/node_modules/typescript/bin/tsc"
                   node "$tsc" --strict --noEmit --skipLibCheck false --target es2023 --module nodenext --moduleResolution nodenext uses.mts
@@ -354,7 +361,7 @@ jobs:
                   ./node_modules/.bin/check-installs
                   printf 'FROM node\nRUN npm ci\n' > Dockerfile
                   if ./node_modules/.bin/check-installs; then
-                      echo "the check passed an install that runs scripts"
+                      echo "the check passed a Dockerfile stage that runs npm with install scripts on"
                       exit 1
                   fi
 

@@ -14,8 +14,10 @@ export function isDockerfile(path: string): boolean;
  */
 export function repositoryRoot(folder: string): string;
 /**
- * Every install in the repository at `root` that runs install scripts, as `path:line  install runs
- * scripts` with the command beneath, read from each workflow, composite action and Dockerfile.
+ * Every place in the repository at `root` that lets npm run install scripts: a package root whose
+ * `.npmrc` does not turn them off, a `.npmrc` that turns them back on, and a Dockerfile stage that
+ * runs npm before turning them off, each as `path:line  what is wrong`, from the files git tracks
+ * and the new ones it would add.
  *
  * @param {string} root
  * @returns {string[]}

@@ -76,6 +76,46 @@ describe('the presets', () => {
         ]);
     });
 
+    it('catch a value compared with itself and an else if that repeats its condition', async () => {
+        expect(await fired(base(), 'self.js', 'export const odd = (a) => a === a;\n')).toEqual([
+            { ruleId: 'no-self-compare', severity: 2 },
+        ]);
+        const repeated =
+            'export const pick = (a) => {\n    if (a) return 1;\n    else if (a) return 2;\n    return 3;\n};\n';
+        expect(await fired(base(), 'repeat.js', repeated)).toContainEqual({
+            ruleId: 'no-dupe-else-if',
+            severity: 2,
+        });
+    });
+
+    it('catch a return that does nothing at the end of a function', async () => {
+        const text = 'export const run = (f) => {\n    f();\n    return;\n};\n';
+        expect(await fired(base(), 'jump.js', text)).toEqual([
+            { ruleId: 'no-useless-return', severity: 2 },
+        ]);
+    });
+
+    it('fail two imports of one module, and pass a type import kept apart', async () => {
+        const twice = "import { a } from 'x';\nimport { b } from 'x';\n\nexport { a, b };\n";
+        expect(await fired(base(), 'twice.ts', twice)).toContainEqual({
+            ruleId: 'no-duplicate-imports',
+            severity: 2,
+        });
+        const apart =
+            "import type { A } from 'x';\nimport { b } from 'x';\n\nexport const c: A = b;\n";
+        expect(await fired(base(), 'apart.ts', apart)).toEqual([]);
+    });
+
+    it('catch the value of a call that returns nothing with the type-aware rules', async () => {
+        const text = 'const none = (): void => {};\nexport const got = none();\n';
+        expect(
+            await fired([...base(), ...typed({ tsconfigRootDir: project })], 'empty.ts', text)
+        ).toContainEqual({
+            ruleId: '@typescript-eslint/no-confusing-void-expression',
+            severity: 2,
+        });
+    });
+
     it('fail a disable comment that gives no reason, and pass one that does', async () => {
         const bare = '// eslint-disable-next-line eqeqeq\nexport const same = (a, b) => a == b;\n';
         expect(await fired(base(), 'bare.js', bare)).toContainEqual({

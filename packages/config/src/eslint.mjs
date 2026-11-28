@@ -1,9 +1,7 @@
 import js from '@eslint/js';
 import comments from '@eslint-community/eslint-plugin-eslint-comments';
 import { defineConfig } from 'eslint/config';
-import importX from 'eslint-plugin-import-x';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
-import sonarjs from 'eslint-plugin-sonarjs';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -11,10 +9,10 @@ import tseslint from 'typescript-eslint';
  * Three kinds of rule live here.
  *
  * Mechanical ones, such as import order, are fixed by `eslint --fix` and exist so a diff never
- * carries reordering noise. Bug catchers, from typescript-eslint's type-aware set and SonarJS, flag
- * code that is wrong rather than code that is unusual. Size budgets catch a function that has grown
- * past what a reader can hold at once. Everything is an error, since a warning that does not fail
- * the build is a rule nobody follows.
+ * carries reordering noise. Bug catchers, from ESLint's core rules and typescript-eslint's
+ * type-aware set, flag code that is wrong rather than code that is unusual. Size budgets catch a
+ * function that has grown past what a reader can hold at once. Everything is an error, since a
+ * warning that does not fail the build is a rule nobody follows.
  *
  * Each preset is a function that returns flat config objects, so a repository spreads the ones it
  * takes into its own `defineConfig` and adds its own blocks after them: the folders that run in a
@@ -32,18 +30,9 @@ const CODE = ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
  * @type {import('eslint').Linter.RulesRecord}
  */
 const bugCatchers = {
-    'sonarjs/no-identical-conditions': 'error',
-    'sonarjs/no-identical-expressions': 'error',
-    'sonarjs/no-all-duplicated-branches': 'error',
-    'sonarjs/no-element-overwrite': 'error',
-    'sonarjs/no-ignored-return': 'error',
-    'sonarjs/no-use-of-empty-return-value': 'error',
-    'sonarjs/no-empty-collection': 'error',
-    'sonarjs/no-unused-collection': 'error',
-    'sonarjs/no-collection-size-mischeck': 'error',
-    'sonarjs/no-extra-arguments': 'error',
-    'sonarjs/no-gratuitous-expressions': 'error',
-    'sonarjs/no-redundant-jump': 'error',
+    'no-dupe-else-if': 'error',
+    'no-self-compare': 'error',
+    'no-useless-return': 'error',
     eqeqeq: ['error', 'always'],
     'no-param-reassign': 'error',
     'array-callback-return': 'error',
@@ -57,7 +46,6 @@ const bugCatchers = {
  */
 const sizeBudgets = {
     complexity: ['error', 15],
-    'sonarjs/cognitive-complexity': ['error', 15],
     'max-depth': ['error', 4],
     'max-params': ['error', 4],
 };
@@ -85,9 +73,7 @@ export function base({ ignores = [] } = {}) {
             },
             plugins: {
                 '@eslint-community/eslint-comments': comments,
-                'import-x': importX,
                 'simple-import-sort': simpleImportSort,
-                sonarjs,
             },
             rules: {
                 '@typescript-eslint/no-unused-vars': [
@@ -100,9 +86,9 @@ export function base({ ignores = [] } = {}) {
                 'prefer-arrow-callback': ['error', { allowNamedFunctions: false }],
                 'simple-import-sort/imports': 'error',
                 'simple-import-sort/exports': 'error',
-                'import-x/first': 'error',
-                'import-x/newline-after-import': 'error',
-                'import-x/no-duplicates': ['error', { 'prefer-inline': true }],
+                // A type import may stay apart from the value import of the same module, so
+                // `import type` lines need not be folded into the value import.
+                'no-duplicate-imports': ['error', { allowSeparateTypeImports: true }],
                 '@eslint-community/eslint-comments/require-description': 'error',
                 ...bugCatchers,
                 ...sizeBudgets,
@@ -145,6 +131,12 @@ export function typed({ tsconfigRootDir, allowDefaultProject }) {
             '@typescript-eslint/prefer-nullish-coalescing': 'error',
             '@typescript-eslint/prefer-optional-chain': 'error',
             '@typescript-eslint/no-unnecessary-condition': 'error',
+            // The value of a call that returns nothing is a mistake, while an arrow that hands
+            // one back in shorthand, or marks it with `void`, is how a callback is written.
+            '@typescript-eslint/no-confusing-void-expression': [
+                'error',
+                { ignoreArrowShorthand: true, ignoreVoidOperator: true },
+            ],
             '@typescript-eslint/prefer-readonly': 'error',
             // A switch over a union names every case, so a new member left out fails the lint.
             '@typescript-eslint/switch-exhaustiveness-check': 'error',

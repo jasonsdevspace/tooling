@@ -46,13 +46,14 @@ export default defineConfig(
 ```
 
 - **`base({ ignores })`** holds every kind of JavaScript and TypeScript file, CommonJS and module
-  files and markup among them, to ESLint's and
-  typescript-eslint's recommended sets, the rules that catch real mistakes, such as `eqeqeq` and
-  SonarJS's identical-branch checks, the size budgets a function may not grow past, and the
-  mechanical rules `eslint --fix` applies, such as import order. Every callable is a value, written
-  as an arrow function. A disable comment has to say why after `--`, and one whose rule no longer
-  fires fails the lint. A `.cjs` file reads as CommonJS, with `require` and `module.exports`. The
-  builds in `dist` and the coverage reports are left out, beside the paths given.
+  files and markup among them, to ESLint's and typescript-eslint's recommended sets, the rules that
+  catch real mistakes, such as `eqeqeq`, a value compared with itself and an `else if` that repeats
+  its condition, the size budgets a function may not grow past, and the mechanical rules `eslint
+--fix` applies, such as import order, with one import of each module, a type import apart. Every
+  callable is a value, written as an arrow function. A disable comment has to say why after `--`,
+  and one whose rule no longer fires fails the lint. A `.cjs` file reads as CommonJS, with `require`
+  and `module.exports`. The builds in `dist` and the coverage reports are left out, beside the paths
+  given.
 - **`typed({ tsconfigRootDir, allowDefaultProject })`** holds TypeScript files to
   typescript-eslint's type-aware set, such as a promise nobody awaits and a condition that is
   always true, read through each file's own tsconfig. `allowDefaultProject` names the files at the
@@ -123,11 +124,10 @@ alone.
 
 The package is versioned on its own. Until 1.0.0, a minor version can fail a build that passed
 before, with a rule that asks more or a new one, and a patch never does, so read the changelog
-before moving to a minor version.
+before moving to a minor version. The plugins it installs are taken by caret ranges, so a plugin's
+own minor or patch reaches a repository through that repository's lockfile, in the dependency update
+it reviews, rather than through a version of this package.
 
 The package is MIT licensed, and the terms are in
-[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/config/LICENSE). Among the
-plugins it installs, SonarJS's ESLint plugin is under the GNU Lesser General Public License, version
-3 only. The package declares it as a dependency and npm installs it unchanged from its own published
-tarball, so none of its code is copied into or bundled with this package. Every other plugin it
-installs is MIT licensed.
+[LICENSE](https://github.com/jasonsdevspace/tooling/blob/main/packages/config/LICENSE). Every plugin
+it installs is MIT licensed.

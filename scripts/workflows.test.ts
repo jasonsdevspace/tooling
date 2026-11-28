@@ -163,7 +163,7 @@ describe('the workflows', () => {
     // Every package releases through the one workflow, by its tag's prefix, so the rules a
     // release keeps are written once.
     const RELEASE = '.github/workflows/release.yml';
-    const PACKAGES = ['prose-check', 'repo-check'] as const;
+    const PACKAGES = ['prose-check', 'repo-check', 'config'] as const;
     const releaseJob = (id: string) =>
         jobsOf(workflows.get(RELEASE) ?? '').find((job) => job.id === id)?.body ?? '';
 
@@ -178,7 +178,7 @@ describe('the workflows', () => {
             'bash',
             ['-c', `${block.replace(/^\s+/gm, '')}\nprintf %s "$package"`],
             {
-                env: { TAG: tag, PATH: process.env.PATH ?? '' },
+                env: { TAG: tag, PATH: process.env['PATH'] ?? '' },
                 encoding: 'utf8',
             }
         );
@@ -248,7 +248,7 @@ describe('the workflows', () => {
                 ['--noprofile', '--norc', '-eo', 'pipefail', '-c', block.replace(/^\s+/gm, '')],
                 {
                     cwd: root,
-                    env: { dir: 'package', version, PATH: process.env.PATH ?? '' },
+                    env: { dir: 'package', version, PATH: process.env['PATH'] ?? '' },
                     encoding: 'utf8',
                 }
             );
@@ -277,6 +277,7 @@ describe('the workflows', () => {
         expect(packageFor('prose-check-v0.2.0')).toBe('prose-check');
         expect(packageFor('prose-check-v0.2.0-next.1')).toBe('prose-check');
         expect(packageFor('repo-check-v0.1.0')).toBe('repo-check');
+        expect(packageFor('config-v0.1.0')).toBe('config');
         expect(packageFor('design-kit-v1.0.0')).toBeUndefined();
     });
 
@@ -284,7 +285,7 @@ describe('the workflows', () => {
         const publish = releaseJob('publish');
         expect(publish).toMatch(/name: \$\{\{ needs\.agree\.outputs\.package \}\}-package\s*$/m);
         expect(publish).toMatch(
-            /^ {12}SHA256: \$\{\{ needs\.agree\.outputs\.package == 'prose-check' && needs\.checks\.outputs\.prose-check-sha256 \|\| needs\.agree\.outputs\.package == 'repo-check' && needs\.checks\.outputs\.repo-check-sha256 \|\| '' \}\}$/m
+            /^ {12}SHA256: \$\{\{ needs\.agree\.outputs\.package == 'prose-check' && needs\.checks\.outputs\.prose-check-sha256 \|\| needs\.agree\.outputs\.package == 'repo-check' && needs\.checks\.outputs\.repo-check-sha256 \|\| needs\.agree\.outputs\.package == 'config' && needs\.checks\.outputs\.config-sha256 \|\| '' \}\}$/m
         );
         expect(publish).toMatch(
             /"\$RUNNER_TEMP\/package\/jasonsdevspace-\$PACKAGE-\$VERSION\.tgz"/
@@ -389,14 +390,20 @@ describe('the workflows', () => {
         expect(outsideInstalls(job('            - run: npm ci\n'))).toEqual([]);
     });
 
-    it('publish packages that depend on no other package, so installing one brings in nothing else', () => {
+    // The prose check and the repo check run unpacked with no install, the prose check from the
+    // tarball a repository's message workflow downloads, so each has to work alone. The config
+    // package is installed as a development dependency and brings the lint plugins its presets
+    // name, so it is held to no such rule.
+    const UNPACKED = ['prose-check', 'repo-check'] as const;
+
+    it('publish the packages that run unpacked with no dependency, so installing one brings in nothing else', () => {
         const fields = [
             'dependencies',
             'optionalDependencies',
             'peerDependencies',
             'bundleDependencies',
         ];
-        const declared = PACKAGES.flatMap((name) => {
+        const declared = UNPACKED.flatMap((name) => {
             const manifest: unknown = JSON.parse(
                 readFileSync(new URL(`../packages/${name}/package.json`, import.meta.url), 'utf8')
             );

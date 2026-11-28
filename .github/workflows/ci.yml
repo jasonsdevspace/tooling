@@ -16,6 +16,9 @@ on:
             repo-check-sha256:
                 description: The checksum of the packed repo check the oldest Node check proved.
                 value: ${{ jobs.repo-check-floor.outputs.sha256 }}
+            config-sha256:
+                description: The checksum of the packed config the oldest Node check proved.
+                value: ${{ jobs.config-floor.outputs.sha256 }}
 
 permissions:
     contents: read
@@ -380,6 +383,179 @@ jobs:
               with:
                   name: repo-check-package
                   path: ${{ runner.temp }}/jasonsdevspace-repo-check-*.tgz
+                  if-no-files-found: error
+                  retention-days: 7
+                  overwrite: true
+
+    config-floor:
+        name: Config on oldest Node
+        runs-on: ubuntu-26.04
+        timeout-minutes: 10
+        outputs:
+            sha256: ${{ steps.pack.outputs.sha256 }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up Node
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+              with:
+                  node-version-file: .nvmrc
+
+            # Without their install scripts, so no dependency runs code as it installs.
+            - name: Install dependencies
+              run: npm ci --ignore-scripts
+
+            # Its checksum is a job output, which no other job in the run can change, unlike the
+            # artifact, so a release publishes only this tarball.
+            - name: Pack the config
+              id: pack
+              run: |
+                  npm pack --workspace @jasonsdevspace/config --pack-destination "$RUNNER_TEMP"
+                  tarballs=("$RUNNER_TEMP"/jasonsdevspace-config-*.tgz)
+                  if [ "${#tarballs[@]}" -ne 1 ] || [ ! -f "${tarballs[0]}" ]; then
+                      echo "packing made ${#tarballs[@]} tarballs, not one"
+                      exit 1
+                  fi
+                  sum=$(sha256sum "${tarballs[0]}" | cut -d' ' -f1)
+                  echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+                  # Printed too, in the form `sha256sum -c` reads, so a tarball downloaded from the
+                  # run can be checked against it. The summary reports and never fails the step.
+                  name=$(basename "${tarballs[0]}")
+                  echo "$sum  $name"
+                  printf '### Packed\n\n```\n%s  %s\n```\n' "$sum" "$name" >> "$GITHUB_STEP_SUMMARY" ||
+                      echo "The summary could not be written."
+
+            # That its exports, types and files point at what the tarball holds.
+            - name: Check the package manifest
+              run: npx --no-install publint packages/config
+
+            # Written as an exact version, because setup-node given a range installs the newest
+            # Node in it, the opposite of the oldest. The file is not committed.
+            - name: Find the oldest supported Node
+              run: |
+                  node -e "import('./scripts/floor.mjs').then(({ floorOf }) => {
+                      const floor = floorOf(require('./packages/config/package.json').engines.node);
+                      if (floor === undefined) throw new Error('engines.node is not a range the oldest Node check can read');
+                      console.log(floor);
+                  })" > config-floor
+
+            - name: Set up the oldest supported Node
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+              with:
+                  node-version-file: config-floor
+
+            # Outside the repository, with install scripts off, beside the peers at the versions
+            # this repository pins, as a repository installs it. The sample holds each kind of file
+            # the presets read and the settings name it from.
+            - name: Install the packed config into an empty project
+              run: |
+                  mkdir "$RUNNER_TEMP/consumer"
+                  cd "$RUNNER_TEMP/consumer"
+                  printf 'ignore-scripts=true\nallow-git=none\nallow-remote=none\n' > .npmrc
+                  npm init -y
+                  peers=$(node -p "const d = require('$GITHUB_WORKSPACE/package.json').devDependencies; ['eslint', 'typescript-eslint', 'typescript', 'prettier'].map((name) => name + '@' + d[name]).join(' ')")
+                  npm install --engine-strict --ignore-scripts --save-dev "$RUNNER_TEMP"/jasonsdevspace-config-*.tgz $peers
+                  npm pkg set type=module prettier=@jasonsdevspace/config/prettier
+                  cat > eslint.config.js <<'JS'
+                  import { base, react, tests, typed } from '@jasonsdevspace/config/eslint';
+                  import { defineConfig } from 'eslint/config';
+
+                  export default defineConfig(
+                      ...base(),
+                      ...typed({ tsconfigRootDir: import.meta.dirname }),
+                      ...react({ files: ['**/*.tsx'] }),
+                      ...tests()
+                  );
+                  JS
+                  printf '{ "extends": "@jasonsdevspace/config/tsconfig.json", "compilerOptions": { "noEmit": true }, "include": ["src"] }\n' > tsconfig.json
+                  mkdir src
+                  printf "export const same = (a: number, b: number): boolean => a === b;\n" > src/same.ts
+                  ./node_modules/.bin/prettier --write . > /dev/null
+
+            - name: Pass code that keeps every rule
+              working-directory: ${{ runner.temp }}/consumer
+              run: |
+                  ./node_modules/.bin/eslint .
+                  ./node_modules/.bin/tsc -p .
+                  ./node_modules/.bin/prettier --check .
+
+            # Each refused with status 1 and the rule's own words, so a crash is not taken for a
+            # refusal.
+            - name: Refuse code that breaks a rule
+              working-directory: ${{ runner.temp }}/consumer
+              run: |
+                  refuses() {
+                      status=0
+                      "$@" > refused 2>&1 || status=$?
+                      if [ "$status" -ne 1 ] && [ "$status" -ne 2 ]; then
+                          echo "$* did not refuse, it gave $status:"
+                          cat refused
+                          exit 1
+                      fi
+                  }
+                  says() {
+                      if ! grep -q "$1" refused; then
+                          echo "the refusal did not name $1:"
+                          cat refused
+                          exit 1
+                      fi
+                  }
+                  printf "export const same = (a: number, b: number): boolean => a == b;\n" > src/same.ts
+                  refuses ./node_modules/.bin/eslint .
+                  says eqeqeq
+                  printf "const later = async (): Promise<number> => 1;\nvoid 0;\nlater();\nexport {};\n" > src/same.ts
+                  refuses ./node_modules/.bin/eslint .
+                  says no-floating-promises
+                  printf "const xs: number[] = [];\nexport const first: number = xs[0];\n" > src/same.ts
+                  refuses ./node_modules/.bin/tsc -p .
+                  says TS2322
+                  printf "export const same = (a: number, b: number): boolean => a === b;\n" > src/same.ts
+                  rm refused
+
+            # As Node and as a bundler resolve the types, with the package's own declarations
+            # checked whole, so one that a setting cannot find fails here, not in a repository
+            # that installs it.
+            - name: Type-check as an installer would
+              working-directory: ${{ runner.temp }}/consumer
+              run: |
+                  cat > uses.mts <<'TS'
+                  import type { Linter } from 'eslint';
+                  import { base, react, tests, typed } from '@jasonsdevspace/config/eslint';
+                  import prettier from '@jasonsdevspace/config/prettier';
+                  const presets: Linter.Config[] = [...base(), ...typed({ tsconfigRootDir: '.' }), ...react({ files: [] }), ...tests()];
+                  export const width: number = prettier.printWidth + presets.length;
+                  TS
+                  ./node_modules/.bin/tsc --ignoreConfig --strict --noEmit --skipLibCheck --target es2023 --module nodenext --moduleResolution nodenext uses.mts
+                  ./node_modules/.bin/tsc --ignoreConfig --strict --noEmit --skipLibCheck --target es2023 --module preserve --moduleResolution bundler uses.mts
+                  # Removed, so the runs after this read only the files they were written with.
+                  rm uses.mts
+
+            # The same tarball on the Node the project builds on, which the floor does not cover.
+            - name: Set up the project's Node
+              uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Pass and refuse on the project's Node
+              working-directory: ${{ runner.temp }}/consumer
+              run: |
+                  ./node_modules/.bin/eslint .
+                  printf "export const same = (a: number, b: number): boolean => a == b;\n" > src/same.ts
+                  if ./node_modules/.bin/eslint .; then
+                      echo "the presets passed a loose comparison"
+                      exit 1
+                  fi
+
+            # A release publishes this tarball, now that it is proven, so the job that holds the
+            # publish token never installs or builds anything.
+            - name: Upload the packed config
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: config-package
+                  path: ${{ runner.temp }}/jasonsdevspace-config-*.tgz
                   if-no-files-found: error
                   retention-days: 7
                   overwrite: true

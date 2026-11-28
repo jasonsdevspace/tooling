@@ -7,8 +7,9 @@
 Jason's repositories share build tools: the prose check, which holds every comment, document and
 page to the house's writing rules, and whose `check-commit-message` command holds a commit message
 and a pull request's title and body to the same rules, and the lint, format and TypeScript
-settings, which each repository keeps a copy of. A tool every repository runs needs one home, so a
-fix reaches each of them through a published version rather than a copy edited in each.
+settings, which each repository kept a copy of when this was decided. A tool every repository runs
+needs one home, so a fix reaches each of them through a published version rather than a copy edited
+in each.
 
 The prose check began in the design kit's workspace, beside the kit's own package and its site, and
 released its first version from there. The kit is a design system, a package every app's pages load,
@@ -42,9 +43,9 @@ it never runs.
 Option C. This repository holds the house's build tools as packages under `packages/`, each released
 from a tag that names it, such as `prose-check-v0.2.0`, through the one `release.yml`, which stages
 the package on npm with provenance from this repository for Jason to promote. The prose check moved
-here with its history, and a tool written later, such as a package of shared lint and format
-settings, starts here. The kit keeps its own repository and installs the tools from npm at an exact
-version, as every other repository does.
+here with its history, and the tools written since, the repo check and the config package that holds
+the shared lint, format and TypeScript settings, started here. The kit keeps its own repository and
+installs the tools from npm at an exact version, as every other repository does.
 
 ## Consequences
 
